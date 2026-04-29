@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mapper.AttendanceRecordMapper">
+
+    <insert id="insertBatch" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO attendance_record (work_record_id, project_name, name, check_date, morning, afternoon, source_file)
+        VALUES
+        <foreach collection="list" item="r" separator=",">
+            (#{r.workRecordId}, #{r.projectName}, #{r.name}, #{r.checkDate}, #{r.morning}, #{r.afternoon}, #{r.sourceFile})
+        </foreach>
+    </insert>
+
+    <select id="listByWorkRecordId" resultType="org.example.entity.AttendanceRecord">
+        SELECT * FROM attendance_record WHERE work_record_id = #{workRecordId} ORDER BY check_date
+    </select>
+
+    <delete id="deleteByWorkRecordId">
+        DELETE FROM attendance_record WHERE work_record_id = #{workRecordId}
+    </delete>
+
+</mapper>

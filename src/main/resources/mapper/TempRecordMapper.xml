@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mapper.TempRecordMapper">
+
+    <insert id="insertBatch" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO temp_record (batch_id, company_name, name, project_name, actual_start_date, actual_end_date,
+            actual_days, standard_days, work_content, source_file, org_id, org_name)
+        VALUES
+        <foreach collection="list" item="r" separator=",">
+            (#{r.batchId}, #{r.companyName}, #{r.name}, #{r.projectName}, #{r.actualStartDate}, #{r.actualEndDate},
+             #{r.actualDays}, #{r.standardDays}, #{r.workContent}, #{r.sourceFile},
+             #{r.orgId}, #{r.orgName})
+        </foreach>
+    </insert>
+
+    <select id="findOrgIdByBatchId" resultType="java.lang.Long">
+        SELECT org_id FROM temp_record WHERE batch_id = #{batchId} LIMIT 1
+    </select>
+
+    <select id="listByBatchId" resultType="org.example.entity.TempRecord">
+        SELECT * FROM temp_record WHERE batch_id = #{batchId} ORDER BY name, actual_start_date
+    </select>
+
+    <delete id="deleteByBatchId">
+        DELETE FROM temp_record WHERE batch_id = #{batchId}
+    </delete>
+
+    <select id="listByName" resultType="org.example.entity.TempRecord">
+        SELECT * FROM temp_record WHERE name = #{name} AND batch_id = #{batchId}
+    </select>
+
+</mapper>

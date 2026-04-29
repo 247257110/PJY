@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mapper.SysUserMapper">
+
+    <resultMap id="userMap" type="org.example.entity.SysUser">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="password" column="password"/>
+        <result property="realName" column="real_name"/>
+        <result property="email" column="email"/>
+        <result property="phone" column="phone"/>
+        <result property="status" column="status"/>
+        <result property="orgId" column="org_id"/>
+        <result property="createdAt" column="created_at"/>
+        <collection property="roles" ofType="org.example.entity.SysRole"
+                    select="org.example.mapper.SysRoleMapper.findByUserId" column="id"/>
+    </resultMap>
+
+    <select id="findByUsername" resultMap="userMap">
+        SELECT * FROM sys_user WHERE username = #{username}
+    </select>
+
+    <select id="findById" resultMap="userMap">
+        SELECT * FROM sys_user WHERE id = #{id}
+    </select>
+
+    <select id="list" resultType="org.example.entity.SysUser">
+        SELECT id, username, real_name, email, phone, status, org_id, created_at FROM sys_user
+        <where>
+            <if test="username != null and username != ''">AND username LIKE CONCAT('%',#{username},'%')</if>
+            <if test="realName != null and realName != ''">AND real_name LIKE CONCAT('%',#{realName},'%')</if>
+            <if test="orgId != null">AND org_id = #{orgId}</if>
+        </where>
+        ORDER BY created_at DESC
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO sys_user (username, password, real_name, email, phone, status, org_id)
+        VALUES (#{username}, #{password}, #{realName}, #{email}, #{phone}, #{status}, #{orgId})
+    </insert>
+
+    <update id="update">
+        UPDATE sys_user
+        <set>
+            <if test="realName != null">real_name = #{realName},</if>
+            <if test="email != null">email = #{email},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="password != null and password != ''">password = #{password},</if>
+            <if test="orgId != null">org_id = #{orgId},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">DELETE FROM sys_user WHERE id = #{id}</delete>
+
+    <delete id="deleteUserRoles">DELETE FROM sys_user_role WHERE user_id = #{userId}</delete>
+
+    <insert id="insertUserRoles">
+        INSERT INTO sys_user_role (user_id, role_id) VALUES
+        <foreach collection="roleIds" item="rid" separator=",">
+            (#{userId}, #{rid})
+        </foreach>
+    </insert>
+
+</mapper>
