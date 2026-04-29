@@ -23,10 +23,11 @@ public class VerifyService {
     private final TempAttendanceRecordMapper tempAttendanceRecordMapper;
     private final AttendanceRecordMapper attendanceRecordMapper;
 
-    public List<ConflictResult> check(String batchId) {
+    public Map<String, Object> check(String batchId) {
         List<TempRecord> tempList = tempRecordMapper.listByBatchId(batchId);
         List<ConflictResult> conflicts = new ArrayList<>();
 
+        // ── 1. 重复投入校验 ──────────────────────────────────────
         Map<String, List<TempRecord>> tempByName = tempList.stream()
                 .collect(Collectors.groupingBy(TempRecord::getName));
 
@@ -58,7 +59,44 @@ public class VerifyService {
             }
         }
 
-        return conflicts;
+        // ── 2. 考勤天数校验 ──────────────────────────────────────
+        List<TempAttendanceRecord> attList = tempAttendanceRecordMapper.listByBatchId(batchId);
+        // 按姓名统计有效考勤天数（上午或下午为"有"则计1天，同一天只算1次）
+        Map<String, Set<String>> nameToAttDates = new HashMap<>();
+        for (TempAttendanceRecord ta : attList) {
+            if (ta.getName() == null || ta.getCheckDate() == null) continue;
+            boolean hasAtt = "有".equals(ta.getMorning()) || "有".equals(ta.getAfternoon());
+            if (hasAtt) {
+                nameToAttDates.computeIfAbsent(ta.getName().trim(), k -> new HashSet<>())
+                        .add(ta.getCheckDate().toString());
+            }
+        }
+
+        List<AttendanceMismatch> mismatches = new ArrayList<>();
+        for (TempRecord t : tempList) {
+            if (t.getName() == null || t.getStandardDays() == null) continue;
+            String name = t.getName().trim();
+            int attDays = nameToAttDates.getOrDefault(name, Collections.emptySet()).size();
+            java.math.BigDecimal attDaysBD = java.math.BigDecimal.valueOf(attDays);
+
+            // 回写 attendance_days 到 temp_record
+            tempRecordMapper.updateAttendanceDays(t.getId(), attDaysBD);
+
+            // 不一致则记录
+            if (t.getStandardDays().compareTo(attDaysBD) != 0) {
+                AttendanceMismatch m = new AttendanceMismatch();
+                m.setName(name);
+                m.setProjectName(t.getProjectName());
+                m.setStandardDays(t.getStandardDays());
+                m.setAttendanceDays(attDaysBD);
+                mismatches.add(m);
+            }
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("conflicts", conflicts);
+        result.put("attendanceMismatches", mismatches);
+        return result;
     }
 
     private ConflictResult checkOverlap(String name,
@@ -84,7 +122,7 @@ public class VerifyService {
 
     @Transactional
     public void confirm(String batchId) {
-        // 1. temp_record → work_record
+        // 1. temp_record → work_record（含考勤校对结果）
         List<TempRecord> tempList = tempRecordMapper.listByBatchId(batchId);
         List<WorkRecord> toInsert = tempList.stream().map(t -> {
             WorkRecord w = new WorkRecord();
@@ -99,11 +137,16 @@ public class VerifyService {
             w.setSourceFile(t.getSourceFile());
             w.setOrgId(t.getOrgId());
             w.setOrgName(t.getOrgName());
+            w.setAttendanceDays(t.getAttendanceDays());
+            // 考勤校对：attendance_days 已在 check() 时回写，null 视为未校对
+            if (t.getAttendanceDays() != null && t.getStandardDays() != null) {
+                w.setAttendanceVerified(t.getStandardDays().compareTo(t.getAttendanceDays()) == 0 ? 1 : 0);
+            }
             return w;
         }).collect(Collectors.toList());
 
         if (!toInsert.isEmpty()) {
-            workRecordMapper.insertBatch(toInsert); // useGeneratedKeys 填充 id
+            workRecordMapper.insertBatch(toInsert);
         }
 
         // 2. 按姓名构建 name → workRecordId 映射

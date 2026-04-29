@@ -142,7 +142,7 @@ ALTER TABLE work_record
 
 -- 考勤校对字段
 ALTER TABLE work_record
-    ADD COLUMN IF NOT EXISTS attendance_verified TINYINT(1) NULL DEFAULT NULL
+    ADD COLUMN attendance_verified TINYINT(1) NULL DEFAULT NULL
     COMMENT '考勤校对: NULL=未校对, 1=通过, 0=不通过'
     AFTER org_name;
 
@@ -177,7 +177,17 @@ CREATE TABLE IF NOT EXISTS temp_attendance_record (
   INDEX idx_temp_record_id (temp_record_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='考勤记录临时表';
 
+-- temp_record 新增考勤有效天数字段
+ALTER TABLE temp_record
+    ADD COLUMN  attendance_days DECIMAL(10,2) DEFAULT NULL COMMENT '考勤有效天数（上午或下午有=1天）' AFTER standard_days;
+
+-- work_record 新增考勤有效天数字段
+ALTER TABLE work_record
+    ADD COLUMN  attendance_days DECIMAL(10,2) DEFAULT NULL COMMENT '考勤有效天数' AFTER standard_days;
+
 -- 已有库补字段
 ALTER TABLE attendance_record
-    ADD COLUMN IF NOT EXISTS morning   VARCHAR(10) COMMENT '上午:有/无' AFTER check_date,
-    ADD COLUMN IF NOT EXISTS afternoon VARCHAR(10) COMMENT '下午:有/无' AFTER morning;
+    ADD COLUMN  morning   VARCHAR(10) COMMENT '上午:有/无' AFTER check_date,
+    ADD COLUMN  afternoon VARCHAR(10) COMMENT '下午:有/无' AFTER morning;
+
+ALTER TABLE temp_record ADD COLUMN  attendance_days DECIMAL(10,2) DEFAULT NULL COMMENT '考勤有效天数（上午或下午有=1天）' AFTER standard_days;

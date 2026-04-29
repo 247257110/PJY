@@ -4,6 +4,8 @@
       <h2 class="page-title">项目验收材料校验</h2>
     </div>
 
+
+
     <!-- Custom stepper -->
     <div class="stepper">
       <div class="step" :class="{ active: true, done: batchId || checkDone }">
@@ -61,12 +63,34 @@
       </div>
     </div>
 
+    <!-- 历史解析批次 -->
+    <div class="step-card" v-if="batchList.length > 0 || batchListLoading">
+      <div class="step-card-header">
+        <span class="step-card-title">历史解析批次</span>
+      </div>
+      <div class="step-card-body no-pad">
+        <el-table :data="batchList" border size="small" v-loading="batchListLoading">
+          <el-table-column prop="sourceFile" label="来源文件" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="recordCount" label="记录数" width="80" align="right" />
+          <el-table-column v-if="isAdmin" prop="orgName" label="机构名称" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="createdAt" label="上传时间" width="160" />
+          <el-table-column label="操作" width="140" fixed="right">
+            <template #default="{ row }">
+              <el-button type="danger" link size="small" @click="enterPreview(row)">进入预览</el-button>
+              <el-button type="danger" link size="small" @click="deleteBatch(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </div>
+
     <!-- Step 2: 解析预览 -->
-    <div v-if="batchId" class="step-card">
+    <div v-if="batchId" class="step-card" ref="previewCard">
       <div class="step-card-header">
         <span class="step-card-title">第二步：解析结果预览（共 {{ previewData.length }} 条）</span>
         <el-button type="primary" :loading="checking" @click="doCheck" size="small">开始校验</el-button>
       </div>
+      <!-- 工作内容时间统计表 -->
       <div class="step-card-body no-pad">
         <el-table :data="previewData" border size="small" max-height="320">
           <el-table-column prop="companyName" label="公司名称" min-width="130" show-overflow-tooltip />
@@ -103,7 +127,7 @@
           <div class="result-icon-wrap pass"><el-icon><CircleCheckFilled /></el-icon></div>
           <div class="result-text">
             <strong>校验通过</strong>
-            <span>未发现重复投入，可纳入基础库</span>
+            <span>1、未发现项目人员交叉重复投入，2、人员投入标准人天与有效考勤天数一致，可纳入基础库</span>
           </div>
           <div class="result-actions">
             <el-button type="primary" :loading="confirming" @click="doConfirm">确认入库</el-button>
@@ -117,13 +141,20 @@
             <div class="result-icon-wrap fail"><el-icon><CircleCloseFilled /></el-icon></div>
             <div class="result-text">
               <strong>校验不通过</strong>
-              <span>发现 {{ conflicts.length }} 处重复投入，请重新提交材料</span>
+              <span>
+                <template v-if="conflicts.length">发现 {{ conflicts.length }} 处重复投入</template>
+                <template v-if="conflicts.length && attendanceMismatches.length">；</template>
+                <template v-if="attendanceMismatches.length">{{ attendanceMismatches.length }} 条考勤天数与标准人天不一致</template>
+              </span>
             </div>
             <div class="result-actions">
               <el-button @click="doCancel">重新上传</el-button>
             </div>
           </div>
-          <div class="conflict-table-wrap">
+
+          <!-- 重复投入明细 -->
+          <div v-if="conflicts.length" class="conflict-table-wrap">
+            <div class="mismatch-header">重复投入明细</div>
             <el-table :data="conflicts" border size="small">
               <el-table-column prop="name" label="姓名" width="90" />
               <el-table-column prop="conflictStartDate" label="重复开始" width="110" />
@@ -133,6 +164,24 @@
               <el-table-column prop="project2" label="项目2" min-width="140" show-overflow-tooltip />
             </el-table>
           </div>
+
+          <!-- 考勤天数不一致明细 -->
+          <div v-if="attendanceMismatches.length" class="conflict-table-wrap">
+            <div class="mismatch-header">考勤天数与标准人天不一致明细</div>
+            <el-table :data="attendanceMismatches" border size="small">
+              <el-table-column prop="name" label="姓名" width="90" />
+              <el-table-column prop="projectName" label="项目名称" min-width="160" show-overflow-tooltip />
+              <el-table-column prop="standardDays" label="标准人天" width="100" align="right" />
+              <el-table-column prop="attendanceDays" label="考勤有效天数" width="110" align="right" />
+              <el-table-column label="差异" width="90" align="right">
+                <template #default="{ row }">
+                  <span :style="{ color: 'var(--c-danger)' }">
+                    {{ (row.attendanceDays - row.standardDays).toFixed(1) }}
+                  </span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
         </div>
       </div>
     </div>
@@ -140,8 +189,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { auth, verify, sysOrg } from '../api/index.js'
 
 const selectedFile = ref(null)
@@ -155,6 +204,10 @@ const attendances = ref([])
 const checkDone = ref(false)
 const checkPass = ref(false)
 const conflicts = ref([])
+const attendanceMismatches = ref([])
+const previewCard = ref(null)
+const batchList = ref([])
+const batchListLoading = ref(false)
 
 // 机构/公司
 const currentUser = JSON.parse(localStorage.getItem('user') || '{}')
@@ -188,6 +241,7 @@ function handleFileChange(file) {
   checkDone.value = false
   checkPass.value = false
   conflicts.value = []
+  attendanceMismatches.value = []
 }
 
 async function doUpload() {
@@ -206,9 +260,11 @@ async function doUpload() {
     const res = await verify.upload(fd)
     if (res.data.code === 200) {
       batchId.value = res.data.batchId
-      previewData.value = res.data.data
+      previewData.value = res.data.records
       attendances.value = res.data.attendances || []
       ElMessage.success(`解析成功，共 ${res.data.total} 条记录`)
+      await nextTick()
+      previewCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } else {
       ElMessage.error(res.data.message || '解析失败')
     }
@@ -226,10 +282,14 @@ async function doCheck() {
     checkDone.value = true
     checkPass.value = res.data.pass
     conflicts.value = res.data.conflicts || []
+    attendanceMismatches.value = res.data.attendanceMismatches || []
     if (checkPass.value) {
       ElMessage.success('校验通过')
     } else {
-      ElMessage.warning(`发现 ${conflicts.value.length} 处重复投入`)
+      const msg = []
+      if (conflicts.value.length) msg.push(`${conflicts.value.length} 处重复投入`)
+      if (attendanceMismatches.value.length) msg.push(`${attendanceMismatches.value.length} 条考勤天数不一致`)
+      ElMessage.warning('发现 ' + msg.join('，'))
     }
   } catch {
     ElMessage.error('校验失败')
@@ -268,6 +328,51 @@ function resetAll() {
   checkDone.value = false
   checkPass.value = false
   conflicts.value = []
+  attendanceMismatches.value = []
+}
+
+async function loadBatches() {
+  batchListLoading.value = true
+  try {
+    const res = await verify.batches()
+    if (res.data.code === 200) batchList.value = res.data.data
+  } catch { /* 不阻断主流程 */ }
+  finally { batchListLoading.value = false }
+}
+
+async function enterPreview(batch) {
+  try {
+    const res = await verify.preview(batch.batchId)
+    if (res.data.code === 200) {
+      batchId.value = batch.batchId
+      previewData.value = res.data.data
+      attendances.value = res.data.attendances || []
+      checkDone.value = false
+      checkPass.value = false
+      conflicts.value = []
+      attendanceMismatches.value = []
+      await nextTick()
+      previewCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    } else {
+      ElMessage.error(res.data.message || '加载失败')
+    }
+  } catch {
+    ElMessage.error('加载批次数据失败')
+  }
+}
+
+async function deleteBatch(batch) {
+  try {
+    await ElMessageBox.confirm(`确认删除批次"${batch.sourceFile}"的解析数据？`, '提示', { type: 'warning' })
+  } catch { return }
+  try {
+    await verify.cancel(batch.batchId)
+    ElMessage.success('已删除')
+    if (batchId.value === batch.batchId) resetAll()
+    loadBatches()
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
 onMounted(async () => {
@@ -283,6 +388,7 @@ onMounted(async () => {
     }
   } catch { /* 失败不影响主流程 */ }
   loadOrgList()
+  loadBatches()
 })
 </script>
 
@@ -419,6 +525,14 @@ onMounted(async () => {
 
 .conflict-table-wrap { margin-top: 16px; border-radius: 6px; overflow: hidden; }
 .conflict-table-wrap :deep(.el-table__row td.el-table__cell) { background-color: #fff9f9; }
+.mismatch-header {
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text-2);
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+}
 
 .attendance-section { border-top: 1px solid var(--c-border); }
 .attendance-header {

@@ -132,7 +132,7 @@ public class AiParseService {
         return callApi(file, filename, PROMPT, false);
     }
 
-    /** 解析图片/PDF，同时返回工作记录和考勤记录 */
+    /** 项目验收材料校验 解析图片/PDF，同时返回工作记录和考勤记录 */
     public ParseResult parseFileToResult(MultipartFile file, String filename) throws Exception {
         return callApiForResult(file, filename);
     }
@@ -165,7 +165,7 @@ public class AiParseService {
         return callApiKimi(file, filename, PROMPT);
     }
 
-    /** 批量初始化：Kimi 返回工作记录+考勤 */
+    /** 项目验收材料校验：Kimi 返回工作记录+考勤 */
     public ParseResult parseFileToResultKimi(MultipartFile file, String filename) throws Exception {
         return callApiForResultKimi(file, filename);
     }
@@ -287,11 +287,15 @@ public class AiParseService {
         result.setWorkRecords(new ArrayList<>());
         result.setAttendances(new ArrayList<>());
 
-        ArrayNode content1 = buildImageContentArray(base64Data, lower, PROMPT);
-        result.getWorkRecords().addAll(parseJson(sendRequestKimi(content1), filename));
+       // ArrayNode content1 = buildImageContentArray(base64Data, lower, PROMPT);
+       // result.getWorkRecords().addAll(parseJson(sendRequestKimi(content1), filename));
 
-        ArrayNode content2 = buildImageContentArray(base64Data, lower, PROMPT_ATTENDANCE);
-        result.getAttendances().addAll(parseAttendanceJson(sendRequestKimi(content2), filename));
+      //  ArrayNode content2 = buildImageContentArray(base64Data, lower, PROMPT_ATTENDANCE);
+       // result.getAttendances().addAll(parseAttendanceJson(sendRequestKimi(content2), filename));
+
+        //工作记录和考勤记录
+        ArrayNode content_full = buildImageContentArray(base64Data, ".jpg", PROMPT_FULL);
+        result = parseFullJson(sendRequestKimi(content_full), filename);
 
         return result;
     }
@@ -299,25 +303,28 @@ public class AiParseService {
     private ParseResult callApiPdfForResultKimi(byte[] pdfBytes, String filename) throws Exception {
         List<BufferedImage> pages = pdfToImages(pdfBytes);
         ParseResult merged = new ParseResult();
-     //   merged.setWorkRecords(new ArrayList<>());
-     //   merged.setAttendances(new ArrayList<>());
+        merged.setWorkRecords(new ArrayList<>());
+        merged.setAttendances(new ArrayList<>());
         System.out.println("page->>>>>"+pages.size());
         for (BufferedImage page : pages) {
+        //    System.out.println("page->>>>>"+page+"页");
             byte[] imgBytes = compressJpeg(page, 0.85f);
             if (imgBytes.length > IMAGE_SIZE_LIMIT) imgBytes = compressJpeg(page, 0.5f);
             String base64 = Base64.getEncoder().encodeToString(imgBytes);
 
             // Pass 1: 工作记录
           //  ArrayNode content1 = buildImageContentArray(base64, ".jpg", PROMPT);
-           // merged.getWorkRecords().addAll(parseJson(sendRequestKimi(content1), filename));
+          //  merged.getWorkRecords().addAll(parseJson(sendRequestKimi(content1), filename));
 
             // Pass 2: 考勤记录
-            //ArrayNode content2 = buildImageContentArray(base64, ".jpg", PROMPT_ATTENDANCE);
-           //merged.getAttendances().addAll(parseAttendanceJson(sendRequestKimi(content2), filename));
+          //  ArrayNode content2 = buildImageContentArray(base64, ".jpg", PROMPT_ATTENDANCE);
+          //  merged.getAttendances().addAll(parseAttendanceJson(sendRequestKimi(content2), filename));
 
             //工作记录和考勤记录
             ArrayNode content_full = buildImageContentArray(base64, ".jpg", PROMPT_FULL);
-            merged = parseFullJson(sendRequestKimi(content_full), filename);
+            ParseResult  fullMerged = parseFullJson(sendRequestKimi(content_full), filename);
+            merged.getWorkRecords().addAll(fullMerged.getWorkRecords());
+            merged.getAttendances().addAll(fullMerged.getAttendances()) ;
         }
         return merged;
     }
@@ -420,7 +427,7 @@ public class AiParseService {
             ep + "/chat/completions", HttpMethod.POST, entity, String.class);
         JsonNode root = MAPPER.readTree(response.getBody());
         String content = root.path("choices").path(0).path("message").path("content").asText("[]");
-        System.out.println("[AI响应长度] " + content.length() + " chars");
+   //     System.out.println("[AI响应长度] " + content.length() + " chars");
         System.out.println("[AIcontent]--->" + content);
         return content;
     }

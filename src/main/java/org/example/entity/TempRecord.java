@@ -16,6 +16,7 @@ public class TempRecord {
     private LocalDate actualEndDate;
     private BigDecimal actualDays;
     private BigDecimal standardDays;
+    private BigDecimal attendanceDays;  // 考勤有效天数
     private String workContent;
     private String sourceFile;
     private Long orgId;

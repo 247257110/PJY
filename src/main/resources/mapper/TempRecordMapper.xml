@@ -30,4 +30,22 @@
         SELECT * FROM temp_record WHERE name = #{name} AND batch_id = #{batchId}
     </select>
 
+    <update id="updateAttendanceDays">
+        UPDATE temp_record SET attendance_days = #{attendanceDays} WHERE id = #{id}
+    </update>
+
+    <select id="selectBatchSummary" resultType="java.util.Map">
+        SELECT
+            batch_id      AS batchId,
+            MAX(source_file)  AS sourceFile,
+            MAX(org_name)     AS orgName,
+            MAX(org_id)       AS orgId,
+            COUNT(*)          AS recordCount,
+            MIN(created_at)   AS createdAt
+        FROM temp_record
+        WHERE (#{isAdmin} = true OR org_id = #{orgId})
+        GROUP BY batch_id
+        ORDER BY MIN(created_at) DESC
+    </select>
+
 </mapper>

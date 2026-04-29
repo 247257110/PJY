@@ -185,6 +185,10 @@ public class BaseLibController {
                     ? Integer.valueOf(str(m, "attendanceVerified")) : null);
             list.add(r);
         }
+        return getWorkRecords(list);
+    }
+
+    private static List<WorkRecord> getWorkRecords(List<WorkRecord> list) {
         return list;
     }
 

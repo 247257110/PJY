@@ -34,13 +34,19 @@
         <el-table-column prop="projectName" label="项目名称" min-width="120" show-overflow-tooltip />
         <el-table-column prop="name" label="姓名" width="90">
           <template #default="{ row }">
-            <el-button type="primary" link @click="showAttendance(row)">{{ row.name }}</el-button>
+            <el-button type="danger" link @click="showAttendance(row)">{{ row.name }}</el-button>
           </template>
         </el-table-column>
         <el-table-column prop="actualStartDate" label="实际开始" width="110" />
         <el-table-column prop="actualEndDate" label="实际结束" width="110" />
         <el-table-column prop="actualDays" label="实际人天" width="100" align="right" />
         <el-table-column prop="standardDays" label="标准人天" width="100" align="right" />
+        <el-table-column prop="attendanceDays" label="考勤天数" width="100" align="right">
+          <template #default="{ row }">
+            <span v-if="row.attendanceDays != null">{{ row.attendanceDays }}</span>
+            <span v-else style="color:var(--c-text-3)">—</span>
+          </template>
+        </el-table-column>
         <el-table-column label="考勤校对" width="100" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.attendanceVerified === 1" type="success" size="small">通过</el-tag>

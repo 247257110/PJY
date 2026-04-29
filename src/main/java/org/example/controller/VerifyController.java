@@ -74,7 +74,9 @@ public class VerifyController {
                     || lower.endsWith(".docx") || lower.endsWith(".doc")) {
                 parsed = pdfParseService.parseFileToResult(file, filename);
             } else {
+                // PDF 使用AI解析
                 parsed = aiParseService.parseFileToResultKimi(file, filename);
+                System.out.println("VerifyController=>"+"TempRecord="+parsed.getWorkRecords()+"TempAttendanceRecord="+parsed.getAttendances().toString());
             }
 
             // 将 WorkRecord 转换为 TempRecord
@@ -139,9 +141,10 @@ public class VerifyController {
 
             result.put("code", 200);
             result.put("batchId", batchId);
-            result.put("data", records);
-            result.put("total", records.size());
+            result.put("records", records);
             result.put("attendances", tempAtts);
+            result.put("total", records.size());
+            System.out.println("result==>>>"+result.toString());
         } catch (Exception e) {
             e.printStackTrace();
             result.put("code", 500);
@@ -158,10 +161,13 @@ public class VerifyController {
             result.put("message", "无权访问该批次");
             return result;
         }
-        List<ConflictResult> conflicts = verifyService.check(batchId);
+        Map<String, Object> checkResult = verifyService.check(batchId);
+        List<?> conflicts = (List<?>) checkResult.get("conflicts");
+        List<?> mismatches = (List<?>) checkResult.get("attendanceMismatches");
         result.put("code", 200);
-        result.put("pass", conflicts.isEmpty());
+        result.put("pass", conflicts.isEmpty() && mismatches.isEmpty());
         result.put("conflicts", conflicts);
+        result.put("attendanceMismatches", mismatches);
         return result;
     }
 
@@ -173,7 +179,8 @@ public class VerifyController {
             result.put("message", "无权操作该批次");
             return result;
         }
-        List<ConflictResult> conflicts = verifyService.check(batchId);
+        Map<String, Object> checkResult = verifyService.check(batchId);
+        List<?> conflicts = (List<?>) checkResult.get("conflicts");
         if (!conflicts.isEmpty()) {
             result.put("code", 400);
             result.put("message", "存在重复投入，不能入库");
@@ -197,6 +204,18 @@ public class VerifyController {
         verifyService.cancel(batchId);
         result.put("code", 200);
         result.put("message", "已取消");
+        return result;
+    }
+
+    @GetMapping("/batches")
+    public Map<String, Object> getBatches(Authentication auth) {
+        Map<String, Object> result = new HashMap<>();
+        boolean isAdmin = dataPermissionHelper.isAdmin(auth);
+        SysUser user = dataPermissionHelper.currentUser(auth);
+        Long orgId = isAdmin ? null : user.getOrgId();
+        List<Map<String, Object>> batches = tempRecordMapper.selectBatchSummary(orgId, isAdmin);
+        result.put("code", 200);
+        result.put("data", batches);
         return result;
     }
 

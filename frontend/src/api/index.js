@@ -54,7 +54,9 @@ export const verify = {
   }),
   check: (batchId) => http.get(`/verify/check/${batchId}`),
   confirm: (batchId) => http.post(`/verify/confirm/${batchId}`),
-  cancel: (batchId) => http.delete(`/verify/cancel/${batchId}`)
+  cancel: (batchId) => http.delete(`/verify/cancel/${batchId}`),
+  batches: () => http.get('/verify/batches'),
+  preview: (batchId) => http.get(`/verify/preview/${batchId}`)
 }
 
 export const sysUser = {
