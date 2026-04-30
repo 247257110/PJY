@@ -2,10 +2,16 @@
   <div class="page">
     <div class="page-header">
       <h2 class="page-title">验收材料基础库</h2>
-      <el-button class="btn-gold-outline" @click="batchDialogVisible = true">
-        <el-icon><UploadFilled /></el-icon>
-        批量初始化
-      </el-button>
+      <div style="display:flex;gap:8px">
+        <el-button class="btn-gold-outline" @click="manualDialogVisible = true">
+          <el-icon><EditPen /></el-icon>
+          手工录入
+        </el-button>
+        <el-button class="btn-gold-outline" @click="batchDialogVisible = true">
+          <el-icon><UploadFilled /></el-icon>
+          批量初始化
+        </el-button>
+      </div>
     </div>
 
     <!-- 搜索栏 -->
@@ -107,6 +113,46 @@
       </template>
     </el-dialog>
 
+    <!-- 手工录入对话框 -->
+    <el-dialog v-model="manualDialogVisible" title="手工录入" width="560px" @close="resetManual">
+      <el-form :model="manualForm" :rules="manualRules" ref="manualFormRef" label-width="90px">
+        <el-form-item label="机构/公司">
+          <el-select v-if="isAdmin" v-model="manualForm.orgId" placeholder="请选择公司" style="width:100%" clearable
+            @change="onManualOrgChange">
+            <el-option v-for="org in orgList" :key="org.id" :label="org.orgName" :value="org.id" />
+          </el-select>
+          <el-input v-else :value="selectedOrgName" disabled />
+        </el-form-item>
+        <el-form-item label="姓名" prop="name">
+          <el-input v-model="manualForm.name" placeholder="请输入姓名" />
+        </el-form-item>
+        <el-form-item label="项目名称" prop="projectName">
+          <el-input v-model="manualForm.projectName" placeholder="请输入项目名称" />
+        </el-form-item>
+        <el-form-item label="开始日期" prop="actualStartDate">
+          <el-date-picker v-model="manualForm.actualStartDate" type="date" value-format="YYYY-MM-DD"
+            placeholder="选择开始日期" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="结束日期" prop="actualEndDate">
+          <el-date-picker v-model="manualForm.actualEndDate" type="date" value-format="YYYY-MM-DD"
+            placeholder="选择结束日期" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="实际人天">
+          <el-input-number v-model="manualForm.actualDays" :min="0" :precision="1" :step="0.5" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="标准人天" prop="standardDays">
+          <el-input-number v-model="manualForm.standardDays" :min="0" :precision="1" :step="0.5" style="width:100%" />
+        </el-form-item>
+        <el-form-item label="工作内容">
+          <el-input v-model="manualForm.workContent" type="textarea" :rows="3" placeholder="请输入工作内容" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="manualDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="manualLoading" @click="doManualSave">保存入库</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 批量初始化对话框 -->
     <el-dialog v-model="batchDialogVisible" title="批量初始化" width="860px" @close="resetBatch">
       <!-- 步骤条 -->
@@ -202,7 +248,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Loading } from '@element-plus/icons-vue'
+import { Loading, EditPen } from '@element-plus/icons-vue'
 import { auth, baseLib, sysOrg } from '../api/index.js'
 
 const loading = ref(false)
@@ -210,6 +256,68 @@ const tableData = ref([])
 const total = ref(0)
 
 const query = reactive({ name: '', companyName: '', projectName: '', page: 1, size: 20 })
+
+// 手工录入
+const manualDialogVisible = ref(false)
+const manualLoading = ref(false)
+const manualFormRef = ref(null)
+const manualForm = reactive({
+  orgId: null, orgName: null,
+  name: '', projectName: '',
+  actualStartDate: null, actualEndDate: null,
+  actualDays: null, standardDays: null,
+  workContent: ''
+})
+const manualRules = {
+  name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  projectName: [{ required: true, message: '请输入项目名称', trigger: 'blur' }],
+  actualStartDate: [{ required: true, message: '请选择开始日期', trigger: 'change' }],
+  actualEndDate: [{ required: true, message: '请选择结束日期', trigger: 'change' }],
+  standardDays: [{ required: true, message: '请输入标准人天', trigger: 'blur' }]
+}
+
+function onManualOrgChange(val) {
+  const found = orgList.value.find(o => o.id === val)
+  manualForm.orgName = found ? found.orgName : null
+}
+
+function resetManual() {
+  manualForm.orgId = null; manualForm.orgName = null
+  manualForm.name = ''; manualForm.projectName = ''
+  manualForm.actualStartDate = null; manualForm.actualEndDate = null
+  manualForm.actualDays = null; manualForm.standardDays = null
+  manualForm.workContent = ''
+  manualFormRef.value?.resetFields()
+}
+
+async function doManualSave() {
+  const valid = await manualFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+  if (isAdmin && !manualForm.orgId) {
+    ElMessage.warning('请选择机构/公司')
+    return
+  }
+  manualLoading.value = true
+  try {
+    const payload = { ...manualForm }
+    if (!isAdmin) {
+      payload.orgId = currentUser.orgId
+      payload.orgName = selectedOrgName.value
+    }
+    const res = await baseLib.manual(payload)
+    if (res.data.code === 200) {
+      ElMessage.success('录入成功')
+      manualDialogVisible.value = false
+      loadData()
+    } else {
+      ElMessage.error(res.data.message || '录入失败')
+    }
+  } catch (e) {
+    ElMessage.error('录入失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    manualLoading.value = false
+  }
+}
 
 const batchDialogVisible = ref(false)
 const batchLoading = ref(false)

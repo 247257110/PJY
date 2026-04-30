@@ -100,8 +100,8 @@ public class AiParseService {
                - projectName：表格上方信息技术服务项目名称的内容
                - name：只提取姓名列里的真实人员姓名，忽略无关文字
                - checkDate：年月从表格上方提取，日期范围1日—31日，组合为 yyyy-MM-dd 格式
-               - morning：时间列上午单元格内存在任何人为留下的痕迹（包括但不限于：打钩✓/✔/√、手写签字、潦草线条、墨迹、文字、数字、印章）→ “有”；单元格完全空白，或仅含表格线交叉阴影、扫描水印、均匀噪点（整体灰色但无局部深色墨迹）→ “无”
-               - afternoon：时间列下午单元格内存在任何人为留下的痕迹（包括但不限于：打钩✓/✔/√、手写签字、潦草线条、墨迹、文字、数字、印章）→ “有”；单元格完全空白，或仅含表格线交叉阴影、扫描水印、均匀噪点（整体灰色但无局部深色墨迹）→ “无”
+               - morning：时间列1-31与人员姓名行的"上午"单元格内存在任何人为留下的手写签字痕迹→ “有”；单元格完全空白，或仅含表格线交叉阴影、扫描水印、均匀噪点（整体灰色但无局部深色墨迹）→ “无”
+               - afternoon：时间列1-31与人员姓名行的"下午"单元格内存在任何人为留下的手写签字痕迹→ “有”；单元格完全空白，或仅含表格线交叉阴影、扫描水印、均匀噪点（整体灰色但无局部深色墨迹）→ “无”
                - 判断标准：宽松识别人为痕迹，严格排除纯几何特征（格线、均匀阴影）
                - 按以上要求100%解析文档，每条数据包含：projectName、name、checkDate、morning、afternoon
             3. 只返回JSON对象，不要任何其他文字
@@ -305,8 +305,9 @@ public class AiParseService {
         merged.setWorkRecords(new ArrayList<>());
         merged.setAttendances(new ArrayList<>());
         System.out.println("page->>>>>"+pages.size());
+        int i = 1;
         for (BufferedImage page : pages) {
-            System.out.println("----->>>>第"+page+"页解析");
+            System.out.println("----->>>>第"+i+"页解析中........请稍后.......");
             byte[] imgBytes = safeCompressForApi(page);
             String base64 = Base64.getEncoder().encodeToString(imgBytes);
 
@@ -323,6 +324,7 @@ public class AiParseService {
             ParseResult  fullMerged = parseFullJson(sendRequestKimi(content_full), filename);
             merged.getWorkRecords().addAll(fullMerged.getWorkRecords());
             merged.getAttendances().addAll(fullMerged.getAttendances()) ;
+            i++;
         }
         return merged;
     }

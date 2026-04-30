@@ -210,6 +210,53 @@ public class BaseLibController {
         return v == null ? null : v.toString();
     }
 
+    /** 手工录入单条记录直接入库 */
+    @PostMapping("/manual")
+    public Map<String, Object> manualSave(
+            Authentication auth,
+            @RequestBody Map<String, Object> body) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            WorkRecord r = new WorkRecord();
+            r.setCompanyName(str(body, "companyName"));
+            r.setName(str(body, "name"));
+            r.setProjectName(str(body, "projectName"));
+            r.setActualStartDate(body.get("actualStartDate") != null
+                    ? java.time.LocalDate.parse(str(body, "actualStartDate")) : null);
+            r.setActualEndDate(body.get("actualEndDate") != null
+                    ? java.time.LocalDate.parse(str(body, "actualEndDate")) : null);
+            r.setActualDays(body.get("actualDays") != null
+                    ? new java.math.BigDecimal(str(body, "actualDays")) : null);
+            r.setStandardDays(body.get("standardDays") != null
+                    ? new java.math.BigDecimal(str(body, "standardDays")) : null);
+            r.setWorkContent(str(body, "workContent"));
+            r.setSourceFile("手工录入");
+
+            // 权限：非 admin 强制使用当前用户机构
+            if (!dataPermissionHelper.isAdmin(auth)) {
+                SysUser user = dataPermissionHelper.currentUser(auth);
+                r.setOrgId(user.getOrgId());
+                SysOrg org = dataPermissionHelper.currentOrg(auth);
+                r.setOrgName(org != null ? org.getOrgName() : null);
+                r.setCompanyName(org != null ? org.getOrgName() : r.getCompanyName());
+            } else {
+                if (body.get("orgId") != null) {
+                    r.setOrgId(Long.valueOf(str(body, "orgId")));
+                    r.setOrgName(str(body, "orgName"));
+                    r.setCompanyName(str(body, "orgName"));//映射公司名称
+                }
+            }
+
+            baseLibService.insertBatch(java.util.List.of(r));
+            result.put("code", 200);
+            result.put("message", "录入成功");
+        } catch (Exception e) {
+            result.put("code", 500);
+            result.put("message", "录入失败：" + e.getMessage());
+        }
+        return result;
+    }
+
     @PostMapping("/batch-init")
     public Map<String, Object> batchInit(
             Authentication auth,

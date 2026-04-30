@@ -36,6 +36,7 @@ export const auth = {
 export const baseLib = {
   list: (params) => http.get('/base-lib/list', { params }),
   delete: (id) => http.delete(`/base-lib/${id}`),
+  manual: (data) => http.post('/base-lib/manual', data),
   batchParse: (formData) => http.post('/base-lib/batch-parse', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 600000
