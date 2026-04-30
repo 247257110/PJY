@@ -50,7 +50,8 @@ export const baseLib = {
 
 export const verify = {
   upload: (formData) => http.post('/verify/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 600000
   }),
   check: (batchId) => http.get(`/verify/check/${batchId}`),
   confirm: (batchId) => http.post(`/verify/confirm/${batchId}`),

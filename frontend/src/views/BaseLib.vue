@@ -32,11 +32,7 @@
       <el-table :data="tableData" border style="width:100%" v-loading="loading">
         <el-table-column prop="companyName" label="公司名称" min-width="140" show-overflow-tooltip />
         <el-table-column prop="projectName" label="项目名称" min-width="120" show-overflow-tooltip />
-        <el-table-column prop="name" label="姓名" width="90">
-          <template #default="{ row }">
-            <el-button type="danger" link @click="showAttendance(row)">{{ row.name }}</el-button>
-          </template>
-        </el-table-column>
+        <el-table-column prop="name" label="姓名" width="90" />
         <el-table-column prop="actualStartDate" label="实际开始" width="110" />
         <el-table-column prop="actualEndDate" label="实际结束" width="110" />
         <el-table-column prop="actualDays" label="实际人天" width="100" align="right" />
@@ -56,8 +52,10 @@
         </el-table-column>
         <el-table-column prop="workContent" label="工作内容" min-width="180" show-overflow-tooltip />
         <el-table-column prop="sourceFile" label="来源文件" min-width="140" show-overflow-tooltip />
-        <el-table-column label="操作" width="80" fixed="right">
+        <el-table-column label="操作" width="130" fixed="right">
           <template #default="{ row }">
+            <el-button type="danger" link size="small" @click="showAttendance(row)">查看考勤</el-button>
+            <el-divider direction="vertical" />
             <el-popconfirm title="确认删除该记录？" @confirm="handleDelete(row.id)">
               <template #reference>
                 <button class="del-link">删除</button>

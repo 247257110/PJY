@@ -172,7 +172,10 @@ public class VerifyService {
                     ar.setWorkRecordId(nameToWorkId.get(ta.getName().trim()));
                 }
                 return ar;
-            }).filter(ar -> ar.getWorkRecordId() != null).collect(Collectors.toList());
+            }).filter(ar -> ar.getWorkRecordId() != null
+                    // 过滤掉上午和下午都为"无"的记录，避免写入无效考勤数据
+                    && ("有".equals(ar.getMorning()) || "有".equals(ar.getAfternoon()))
+            ).collect(Collectors.toList());
 
             if (!attendances.isEmpty()) {
                 attendanceRecordMapper.insertBatch(attendances);

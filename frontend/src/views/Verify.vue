@@ -268,8 +268,12 @@ async function doUpload() {
     } else {
       ElMessage.error(res.data.message || '解析失败')
     }
-  } catch {
-    ElMessage.error('上传失败，请检查网络或文件格式')
+  } catch(e) {
+    if (e.code === 'ECONNABORTED' || e.message?.includes('timeout')) {
+      ElMessage.error('解析超时，请稍后重试（AI 解析大文件需要较长时间）')
+    } else {
+      ElMessage.error('上传失败：' + (e.response?.data?.message || e.message || '请检查网络或文件格式'))
+    }
   } finally {
     uploading.value = false
   }

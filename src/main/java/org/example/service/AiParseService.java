@@ -209,8 +209,7 @@ public class AiParseService {
         List<BufferedImage> pages = pdfToImages(pdfBytes);
         List<WorkRecord> all = new ArrayList<>();
         for (BufferedImage page : pages) {
-            byte[] imgBytes = compressJpeg(page, 0.85f);
-            if (imgBytes.length > IMAGE_SIZE_LIMIT) imgBytes = compressJpeg(page, 0.5f);
+            byte[] imgBytes = safeCompressForApi(page);
             String base64 = Base64.getEncoder().encodeToString(imgBytes);
             ArrayNode content = buildImageContentArray(base64, ".jpg", prompt);
             all.addAll(parseJson(sendRequest(content), filename));
@@ -225,8 +224,7 @@ public class AiParseService {
         merged.setWorkRecords(new ArrayList<>());
         merged.setAttendances(new ArrayList<>());
         for (BufferedImage page : pages) {
-            byte[] imgBytes = compressJpeg(page, 0.85f);
-            if (imgBytes.length > IMAGE_SIZE_LIMIT) imgBytes = compressJpeg(page, 0.5f);
+            byte[] imgBytes = safeCompressForApi(page);
             String base64 = Base64.getEncoder().encodeToString(imgBytes);
 
             ArrayNode content1 = buildImageContentArray(base64, ".jpg", PROMPT);
@@ -243,7 +241,7 @@ public class AiParseService {
         try (PDDocument doc = Loader.loadPDF(pdfBytes)) {
             PDFRenderer renderer = new PDFRenderer(doc);
             for (int i = 0; i < doc.getNumberOfPages(); i++) {
-                pages.add(renderer.renderImageWithDPI(i, 150));
+                pages.add(renderer.renderImageWithDPI(i, 200));
             }
         }
         return pages;
@@ -266,8 +264,7 @@ public class AiParseService {
         List<BufferedImage> pages = pdfToImages(pdfBytes);
         List<WorkRecord> all = new ArrayList<>();
         for (BufferedImage page : pages) {
-            byte[] imgBytes = compressJpeg(page, 0.85f);
-            if (imgBytes.length > IMAGE_SIZE_LIMIT) imgBytes = compressJpeg(page, 0.5f);
+            byte[] imgBytes = safeCompressForApi(page);
             String base64 = Base64.getEncoder().encodeToString(imgBytes);
             ArrayNode content = buildImageContentArray(base64, ".jpg", prompt);
             all.addAll(parseJson(sendRequestKimi(content), filename));
@@ -308,8 +305,7 @@ public class AiParseService {
         System.out.println("page->>>>>"+pages.size());
         for (BufferedImage page : pages) {
         //    System.out.println("page->>>>>"+page+"页");
-            byte[] imgBytes = compressJpeg(page, 0.85f);
-            if (imgBytes.length > IMAGE_SIZE_LIMIT) imgBytes = compressJpeg(page, 0.5f);
+            byte[] imgBytes = safeCompressForApi(page);
             String base64 = Base64.getEncoder().encodeToString(imgBytes);
 
             // Pass 1: 工作记录
@@ -381,6 +377,31 @@ public class AiParseService {
         writer.write(null, new IIOImage(rgb, null, null), param);
         writer.dispose();
         return out.toByteArray();
+    }
+
+    /**
+     * 将 BufferedImage 压缩到 IMAGE_SIZE_LIMIT 以内，
+     * 优先保持高质量（0.85），超限时缩小尺寸而非降低质量，保护 OCR 识别精度。
+     */
+    private byte[] safeCompressForApi(BufferedImage img) throws Exception {
+        byte[] result = compressJpeg(img, 0.85f);
+        if (result.length <= IMAGE_SIZE_LIMIT) return result;
+
+        // 尺寸不断缩小 75%，保持质量 0.85
+        int w = img.getWidth();
+        int h = img.getHeight();
+        while (w > 200) {
+            w = (int) (w * 0.75);
+            h = (int) (h * 0.75);
+            BufferedImage scaled = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = scaled.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(img, 0, 0, w, h, null);
+            g.dispose();
+            result = compressJpeg(scaled, 0.85f);
+            if (result.length <= IMAGE_SIZE_LIMIT) return result;
+        }
+        return result;
     }
 
     private ArrayNode buildImageContentArray(String base64Data, String lower, String prompt) {

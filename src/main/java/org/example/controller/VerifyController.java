@@ -100,7 +100,7 @@ public class VerifyController {
             if (orgId != null) {
                 final Long orgIdFinal = orgId;
                 final String orgNameFinal = resolvedOrgName;
-                records.forEach(r -> { r.setOrgId(orgIdFinal); r.setOrgName(orgNameFinal); });
+                records.forEach(r -> { r.setOrgId(orgIdFinal); r.setOrgName(orgNameFinal); r.setCompanyName(orgNameFinal);});
             }
 
             // 插入 TempRecord（useGeneratedKeys 填充 id）

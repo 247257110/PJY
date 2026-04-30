@@ -130,7 +130,10 @@ public class BaseLibService {
     public Map<String, Object> getAttendanceDetail(Long workRecordId) {
         WorkRecord wr = workRecordMapper.findById(workRecordId);
         List<AttendanceRecord> records = attendanceRecordMapper.listByWorkRecordId(workRecordId);
+
+        // 只有上午或下午为"有"才算有效签到，避免全"无"记录误判为已签到
         Set<LocalDate> signedDates = records.stream()
+                .filter(r -> "有".equals(r.getMorning()) || "有".equals(r.getAfternoon()))
                 .map(AttendanceRecord::getCheckDate)
                 .collect(Collectors.toSet());
 
