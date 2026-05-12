@@ -37,7 +37,7 @@
     </select>
 
     <update id="updateAttendanceVerified">
-        UPDATE work_record SET attendance_verified = #{val} WHERE id = #{id}
+        UPDATE work_record SET attendance_verified = #{val}, attendance_days = #{attendanceDays} WHERE id = #{id}
     </update>
 
 </mapper>

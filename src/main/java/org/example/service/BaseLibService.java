@@ -10,9 +10,9 @@ import org.example.mapper.WorkRecordMapper;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.util.*;
+import org.example.util.ChineseHolidayUtil;
 import java.util.stream.Collectors;
 
 @Service
@@ -61,7 +61,8 @@ public class BaseLibService {
             if (personAtt.isEmpty()) {
                 wr.setAttendanceVerified(null);
             } else if (wr.getStandardDays() != null && wr.getStandardDays().compareTo(BigDecimal.ZERO) > 0) {
-                wr.setAttendanceVerified(wr.getStandardDays().compareTo(BigDecimal.valueOf(signedDays)) == 0 ? 1 : 0);
+                // 签到天数 >= 标准人天 → 通过
+                wr.setAttendanceVerified(wr.getStandardDays().compareTo(BigDecimal.valueOf(signedDays)) <= 0 ? 1 : 0);
             } else {
                 wr.setAttendanceVerified(signedDays > 0 ? 1 : 0);
             }
@@ -105,11 +106,12 @@ public class BaseLibService {
             if (personAtt.isEmpty()) {
                 verified = null;
             } else if (wr.getStandardDays() != null && wr.getStandardDays().compareTo(BigDecimal.ZERO) > 0) {
-                verified = (wr.getStandardDays().compareTo(BigDecimal.valueOf(signedDays)) == 0) ? 1 : 0;
+                // 签到天数 >= 标准人天 → 通过
+                verified = (wr.getStandardDays().compareTo(BigDecimal.valueOf(signedDays)) <= 0) ? 1 : 0;
             } else {
                 verified = signedDays > 0 ? 1 : 0;
             }
-            workRecordMapper.updateAttendanceVerified(wr.getId(), verified);
+            workRecordMapper.updateAttendanceVerified(wr.getId(), verified, BigDecimal.valueOf(signedDays));
 
             if (!personAtt.isEmpty()) {
                 for (AttendanceRecord ar : personAtt) {
@@ -142,8 +144,7 @@ public class BaseLibService {
         if (wr != null && wr.getActualStartDate() != null && wr.getActualEndDate() != null) {
             LocalDate cur = wr.getActualStartDate();
             while (!cur.isAfter(wr.getActualEndDate())) {
-                boolean isWorkday = cur.getDayOfWeek() != DayOfWeek.SATURDAY
-                        && cur.getDayOfWeek() != DayOfWeek.SUNDAY;
+                boolean isWorkday = ChineseHolidayUtil.isWorkday(cur);
                 boolean signed = signedDates.contains(cur);
                 Map<String, Object> day = new HashMap<>();
                 day.put("checkDate", cur.toString());
@@ -165,7 +166,7 @@ public class BaseLibService {
         Set<LocalDate> days = new HashSet<>();
         LocalDate cur = start;
         while (!cur.isAfter(end)) {
-            if (cur.getDayOfWeek() != DayOfWeek.SATURDAY && cur.getDayOfWeek() != DayOfWeek.SUNDAY) {
+            if (ChineseHolidayUtil.isWorkday(cur)) {
                 days.add(cur);
             }
             cur = cur.plusDays(1);

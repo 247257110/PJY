@@ -4,7 +4,12 @@ import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.hwpf.HWPFDocument;
-import org.apache.poi.hwpf.extractor.WordExtractor;
+
+import org.apache.poi.hwpf.usermodel.Paragraph;
+import org.apache.poi.hwpf.usermodel.Range;
+import org.apache.poi.hwpf.usermodel.TableIterator;
+import org.apache.poi.hwpf.usermodel.TableRow;
+import org.apache.poi.hwpf.usermodel.TableCell;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xwpf.usermodel.*;
 import org.example.entity.AttendanceRecord;
@@ -123,11 +128,51 @@ public class PdfParseService {
     // ── Word .doc ─────────────────────────────────────────────────────────────
 
     private List<TempRecord> parseDoc(InputStream is, String batchId, String filename) throws Exception {
-        try (HWPFDocument doc = new HWPFDocument(is);
-             WordExtractor extractor = new WordExtractor(doc)) {
-            String text = String.join("\n", extractor.getParagraphText());
-            return parseTextLines(text, batchId, filename);
+        List<TempRecord> result = new ArrayList<>();
+        try (HWPFDocument doc = new HWPFDocument(is)) {
+            Range range = doc.getRange();
+
+            // 从文档标题段落提取项目名称
+            String projectName = null;
+            for (int i = 0; i < range.numParagraphs(); i++) {
+                Paragraph para = range.getParagraph(i);
+                String text = para.text().trim();
+                if (para.getTableLevel() == 0 && text.contains("工作内容时间统计表")) {
+                    int idx = text.indexOf("验收工作内容时间统计表");
+                    if (idx == -1) idx = text.indexOf("工作内容时间统计表");
+                    if (idx > 0) projectName = text.substring(0, idx).trim();
+                    break;
+                }
+            }
+
+            TableIterator ti = new TableIterator(range);
+            while (ti.hasNext()) {
+                org.apache.poi.hwpf.usermodel.Table table = ti.next();
+                if (table.numRows() < 2) continue;
+
+                TableRow headerRow = table.getRow(0);
+                String[] headers = new String[headerRow.numCells()];
+                for (int c = 0; c < headerRow.numCells(); c++)
+                    headers[c] = headerRow.getCell(c).text().trim();
+
+                if (!containsHeader(headers)) continue;
+
+                int[] colIdx = resolveColumnIndex(headers);
+
+                for (int r = 1; r < table.numRows(); r++) {
+                    TableRow row = table.getRow(r);
+                    String[] cols = new String[row.numCells()];
+                    for (int c = 0; c < row.numCells(); c++)
+                        cols[c] = row.getCell(c).text().trim();
+                    TempRecord rec = buildRecordByIndex(cols, colIdx, batchId, filename);
+                    if (rec != null) {
+                        if (projectName != null) rec.setProjectName(projectName);
+                        result.add(rec);
+                    }
+                }
+            }
         }
+        return result;
     }
 
     // ── Excel ─────────────────────────────────────────────────────────────────
@@ -141,6 +186,7 @@ public class PdfParseService {
                 int[] colIdx = null;
 
                 for (Row row : sheet) {
+                    if (row.getLastCellNum() <= 0) continue;
                     String[] headers = new String[row.getLastCellNum()];
                     for (int ci = 0; ci < row.getLastCellNum(); ci++)
                         headers[ci] = getCellString(row.getCell(ci));
@@ -154,7 +200,7 @@ public class PdfParseService {
 
                 for (int ri = headerRow + 1; ri <= sheet.getLastRowNum(); ri++) {
                     Row row = sheet.getRow(ri);
-                    if (row == null) continue;
+                    if (row == null || row.getLastCellNum() <= 0) continue;
                     String[] cols = new String[row.getLastCellNum()];
                     for (int ci = 0; ci < row.getLastCellNum(); ci++)
                         cols[ci] = getCellString(row.getCell(ci));
@@ -178,7 +224,7 @@ public class PdfParseService {
             line = line.trim();
             if (line.isEmpty()) continue;
 
-            if (line.contains("工作内容统计表")) {
+            if (line.contains("工作内容时间统计表")) {
                 inTable = true;
                 headerPassed = false;
                 continue;
@@ -208,13 +254,13 @@ public class PdfParseService {
         for (int i = 0; i < headers.length; i++) {
             String h = headers[i] == null ? "" : headers[i];
             if (h.contains("公司")) idx[0] = i;
-            else if (h.contains("姓名")) idx[1] = i;
+            else if (h.contains("姓名") || (h.contains("人员") && !h.contains("资质"))) idx[1] = i;
             else if (h.contains("项目")) idx[2] = i;
             else if (h.contains("开始")) idx[3] = i;
             else if (h.contains("结束")) idx[4] = i;
             else if (h.contains("实际") && h.contains("人天")) idx[5] = i;
             else if (h.contains("标准") || h.contains("实施")) idx[6] = i;
-            else if (h.contains("工作内容")) idx[7] = i;
+            else if (h.contains("工作内容") || h.contains("备注")) idx[7] = i;
         }
         return idx;
     }
@@ -365,7 +411,7 @@ public class PdfParseService {
             for (int si = 0; si < wb.getNumberOfSheets(); si++) {
                 Sheet sheet = wb.getSheetAt(si);
                 String sheetName = sheet.getSheetName();
-                if (isAttendanceSheet(sheetName)) {
+                if (isAttendanceSheet(sheetName) || isAttendanceContent(sheet)) {
                     result.getAttendances().addAll(parseAttendanceSheet(sheet, filename));
                 } else {
                     result.getWorkRecords().addAll(tempsToWorkRecords(
@@ -395,6 +441,40 @@ public class PdfParseService {
         return name != null && (name.contains("考勤") || name.contains("签到") || name.contains("登记"));
     }
 
+    /** 检查 sheet 内容是否包含考勤关键词（用于名称不匹配时的回退判断） */
+    private boolean isAttendanceContent(Sheet sheet) {
+        for (int ri = 0; ri <= Math.min(1, sheet.getLastRowNum()); ri++) {
+            Row row = sheet.getRow(ri);
+            if (row == null || row.getLastCellNum() <= 0) continue;
+            for (int ci = 0; ci < row.getLastCellNum(); ci++) {
+                String v = getCellString(row.getCell(ci));
+                if (v != null && (v.contains("考勤") || v.contains("签到") || v.contains("登记表"))) return true;
+            }
+        }
+        return false;
+    }
+
+    /** 从 sheet 名称或内容中提取年月信息 */
+    private java.time.YearMonth extractYearMonth(Sheet sheet) {
+        // 尝试从 sheet 名称提取：如 "2024年11月 (2)"
+        String name = sheet.getSheetName();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月").matcher(name);
+        if (m.find()) return java.time.YearMonth.of(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
+        // 尝试从前两行内容提取
+        for (int ri = 0; ri <= Math.min(1, sheet.getLastRowNum()); ri++) {
+            Row row = sheet.getRow(ri);
+            if (row == null || row.getLastCellNum() <= 0) continue;
+            for (int ci = 0; ci < row.getLastCellNum(); ci++) {
+                String v = getCellString(row.getCell(ci));
+                if (v != null) {
+                    m = java.util.regex.Pattern.compile("(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月").matcher(v);
+                    if (m.find()) return java.time.YearMonth.of(Integer.parseInt(m.group(1)), Integer.parseInt(m.group(2)));
+                }
+            }
+        }
+        return null;
+    }
+
     private boolean isAttendanceHeader(String text) {
         return text != null && (text.contains("考勤") || text.contains("签到") || text.contains("登记表"));
     }
@@ -402,13 +482,15 @@ public class PdfParseService {
     /** 解析 Excel 考勤登记表 sheet */
     private List<AttendanceRecord> parseAttendanceSheet(Sheet sheet, String filename) {
         List<AttendanceRecord> result = new ArrayList<>();
-        // 找表头行（含日期列）
         int headerRow = -1;
         List<LocalDate> dateCols = new ArrayList<>();
         int nameColIdx = -1;
+        int timeColIdx = -1; // 上午/下午 列
         String projectName = null;
+        java.time.YearMonth yearMonth = extractYearMonth(sheet);
 
         for (Row row : sheet) {
+            if (row.getLastCellNum() <= 0) continue;
             String[] cells = new String[row.getLastCellNum()];
             for (int ci = 0; ci < row.getLastCellNum(); ci++)
                 cells[ci] = getCellString(row.getCell(ci));
@@ -422,41 +504,82 @@ public class PdfParseService {
             int dateCount = 0;
             List<LocalDate> tmpDates = new ArrayList<>();
             int tmpNameIdx = -1;
+            int tmpTimeIdx = -1;
             for (int ci = 0; ci < cells.length; ci++) {
                 String c = cells[ci];
                 if (c == null) continue;
-                if (c.contains("姓名") || c.contains("人员")) tmpNameIdx = ci;
+                String stripped = c.replaceAll("\\s+", "");
+                if (stripped.contains("姓名") || stripped.contains("人员")) tmpNameIdx = ci;
+                if (stripped.contains("时间")) tmpTimeIdx = ci;
                 LocalDate d = parseAttendanceDate(c);
                 if (d != null) { tmpDates.add(d); dateCount++; }
-                else tmpDates.add(null);
+                else if (yearMonth != null) {
+                    // 尝试解析数字作为 day-of-month
+                    try {
+                        int day = Integer.parseInt(c);
+                        if (day >= 1 && day <= 31) {
+                            tmpDates.add(yearMonth.atDay(Math.min(day, yearMonth.lengthOfMonth())));
+                            dateCount++;
+                            continue;
+                        }
+                    } catch (NumberFormatException ignored) {}
+                    tmpDates.add(null);
+                } else {
+                    tmpDates.add(null);
+                }
             }
             if (dateCount >= 3) {
                 headerRow = row.getRowNum();
                 dateCols = tmpDates;
                 nameColIdx = tmpNameIdx;
+                timeColIdx = tmpTimeIdx;
                 break;
             }
         }
         if (headerRow < 0 || nameColIdx < 0) return result;
 
+        // 用 Map 按 "name|date" 合并上下午记录
+        java.util.LinkedHashMap<String, AttendanceRecord> recordMap = new java.util.LinkedHashMap<>();
+        String lastName = null;
+        boolean isMorning = true; // 默认上午
         for (int ri = headerRow + 1; ri <= sheet.getLastRowNum(); ri++) {
             Row row = sheet.getRow(ri);
-            if (row == null) continue;
+            if (row == null || row.getLastCellNum() <= 0) continue;
             String name = getCellString(row.getCell(nameColIdx));
-            if (name == null || name.isBlank()) continue;
+            if (name != null && !name.isBlank()) lastName = name.trim();
+            if (lastName == null) continue;
+            // 检测上午/下午标记
+            if (timeColIdx >= 0) {
+                String timeMark = getCellString(row.getCell(timeColIdx));
+                if (timeMark != null) {
+                    if (timeMark.contains("下") || timeMark.contains("下午")) isMorning = false;
+                    else if (timeMark.contains("上") || timeMark.contains("上午")) isMorning = true;
+                }
+            }
             for (int ci = 0; ci < dateCols.size() && ci < row.getLastCellNum(); ci++) {
                 LocalDate date = dateCols.get(ci);
                 if (date == null) continue;
-                String val = getCellString(row.getCell(ci));
-                if (val != null && !val.isBlank()) {
-                    AttendanceRecord ar = new AttendanceRecord();
-                    ar.setName(name.trim());
+                String key = lastName + "|" + date;
+                AttendanceRecord ar = recordMap.get(key);
+                if (ar == null) {
+                    ar = new AttendanceRecord();
+                    ar.setName(lastName);
                     ar.setCheckDate(date);
                     ar.setProjectName(projectName);
                     ar.setSourceFile(filename);
-                    result.add(ar);
+                    recordMap.put(key, ar);
+                }
+                String val = getCellString(row.getCell(ci));
+                if (val != null && !val.isBlank()) {
+                    if (isMorning) ar.setMorning("有"); else ar.setAfternoon("有");
                 }
             }
+        }
+        // 未标记的统一设为"无"
+        for (AttendanceRecord ar : recordMap.values()) {
+            if (ar.getMorning() == null) ar.setMorning("无");
+            if (ar.getAfternoon() == null) ar.setAfternoon("无");
+            result.add(ar);
         }
         return result;
     }
@@ -562,6 +685,7 @@ public class PdfParseService {
         int headerRow = -1;
         int[] colIdx = null;
         for (Row row : sheet) {
+            if (row.getLastCellNum() <= 0) continue;
             String[] headers = new String[row.getLastCellNum()];
             for (int ci = 0; ci < row.getLastCellNum(); ci++)
                 headers[ci] = getCellString(row.getCell(ci));
@@ -574,7 +698,7 @@ public class PdfParseService {
         if (headerRow < 0) return result;
         for (int ri = headerRow + 1; ri <= sheet.getLastRowNum(); ri++) {
             Row row = sheet.getRow(ri);
-            if (row == null) continue;
+            if (row == null || row.getLastCellNum() <= 0) continue;
             String[] cols = new String[row.getLastCellNum()];
             for (int ci = 0; ci < row.getLastCellNum(); ci++)
                 cols[ci] = getCellString(row.getCell(ci));

@@ -7,6 +7,10 @@
           <el-icon><EditPen /></el-icon>
           手工录入
         </el-button>
+        <el-button class="btn-gold-outline" @click="importDialogVisible = true">
+          <el-icon><UploadFilled /></el-icon>
+          导入初始化
+        </el-button>
         <el-button class="btn-gold-outline" @click="batchDialogVisible = true">
           <el-icon><UploadFilled /></el-icon>
           批量初始化
@@ -242,6 +246,149 @@
         </template>
       </template>
     </el-dialog>
+
+    <!-- 导入初始化对话框 -->
+    <el-dialog v-model="importDialogVisible" title="导入初始化" width="960px" @close="resetImport">
+      <el-steps :active="importStep - 1" finish-status="success" simple style="margin-bottom:24px">
+        <el-step title="导入文件" />
+        <el-step title="数据预览" />
+        <el-step title="校验并入库" />
+      </el-steps>
+
+      <!-- Step 1：导入文件 -->
+      <div v-if="importStep === 1" v-loading="importLoading" element-loading-text="解析加载中...">
+        <el-form label-width="200px" style="margin-bottom:16px">
+          <el-form-item label="机构/公司">
+            <el-select v-if="isAdmin" v-model="importOrgId" placeholder="请选择项目所属公司" style="width:300px" clearable>
+              <el-option v-for="org in orgList" :key="org.id" :label="org.orgName" :value="org.id" />
+            </el-select>
+            <el-input v-else :value="selectedOrgName" disabled style="width:300px" />
+          </el-form-item>
+          <el-form-item label="合作公司人员工作内容及时间统计表">
+            <el-upload ref="importWorkUploadRef" :auto-upload="false" :limit="1"
+              accept=".doc,.docx" :on-change="onImportWorkChange" :on-remove="onImportWorkRemove" class="inline-upload">
+              <el-button type="primary">
+                <el-icon><UploadFilled /></el-icon> 选择Word文件
+              </el-button>
+              <template #tip>
+                <span class="upload-tip-inline">支持 .doc / .docx 格式</span>
+              </template>
+            </el-upload>
+          </el-form-item>
+          <el-form-item label="合作公司人员考勤登记表">
+            <el-upload ref="importAttUploadRef" :auto-upload="false" :limit="1"
+              accept=".xls,.xlsx" :on-change="onImportAttChange" :on-remove="onImportAttRemove" class="inline-upload">
+              <el-button type="primary">
+                <el-icon><UploadFilled /></el-icon> 选择Excel文件
+              </el-button>
+              <template #tip>
+                <span class="upload-tip-inline">支持 .xls / .xlsx 格式</span>
+              </template>
+            </el-upload>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- Step 2：数据预览 -->
+      <div v-else-if="importStep === 2">
+        <div style="margin-bottom:10px;font-size:13px;color:var(--c-text-2)">
+          共解析工作记录 <strong>{{ importParseData.workRecords.length }}</strong> 条，
+          考勤记录 <strong>{{ importParseData.attendances.length }}</strong> 条
+          <template v-if="importValidated">
+            ，考勤通过 <strong style="color:var(--el-color-success)">{{ importStat.pass }}</strong> 条，
+            不通过 <strong style="color:var(--el-color-danger)">{{ importStat.fail }}</strong> 条，
+            无考勤 <strong style="color:var(--c-text-3)">{{ importStat.noAtt }}</strong> 条
+          </template>
+        </div>
+
+        <div style="margin-bottom:8px;font-size:14px;font-weight:600;color:var(--c-text-1)">
+          合作公司人员工作内容及时间统计表
+        </div>
+        <el-table :data="importParseData.workRecords" border size="small" max-height="240" style="width:100%;margin-bottom:20px">
+          <el-table-column prop="companyName" label="公司" min-width="110" show-overflow-tooltip />
+          <el-table-column prop="name" label="姓名" width="80">
+            <template #default="{ row }">
+              <span class="name-link" @click="showImportAttendance(row)">{{ row.name }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="projectName" label="项目" min-width="110" show-overflow-tooltip />
+          <el-table-column prop="actualStartDate" label="开始" width="100" />
+          <el-table-column prop="actualEndDate" label="结束" width="100" />
+          <el-table-column prop="actualDays" label="实际人天" width="80" align="right" />
+          <el-table-column prop="standardDays" label="标准人天" width="80" align="right" />
+          <el-table-column prop="signedDays" label="签到天数" width="80" align="right" v-if="importValidated" />
+          <el-table-column label="考勤校对" width="90" align="center" v-if="importValidated">
+            <template #default="{ row }">
+              <el-tag v-if="row.attendanceVerified === 1" type="success" size="small">通过</el-tag>
+              <el-tag v-else-if="row.attendanceVerified === 0" type="danger" size="small">不通过</el-tag>
+              <el-tag v-else type="info" size="small">无考勤</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="workContent" label="工作内容" min-width="140" show-overflow-tooltip />
+          <el-table-column prop="sourceFile" label="来源文件" min-width="120" show-overflow-tooltip />
+        </el-table>
+
+        <div style="margin-bottom:8px;font-size:14px;font-weight:600;color:var(--c-text-1)">
+          合作公司人员考勤登记表
+        </div>
+        <el-table :data="importAttPageData" border size="small" max-height="240" style="width:100%">
+          <el-table-column prop="name" label="姓名" width="80" />
+          <el-table-column prop="checkDate" label="考勤日期" width="120" />
+          <el-table-column prop="morning" label="上午" width="60" align="center">
+            <template #default="{ row }">
+              <span :class="row.morning === '有' ? 'att-tag-yes' : 'att-tag-no'">{{ row.morning || '—' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="afternoon" label="下午" width="60" align="center">
+            <template #default="{ row }">
+              <span :class="row.afternoon === '有' ? 'att-tag-yes' : 'att-tag-no'">{{ row.afternoon || '—' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="sourceFile" label="来源文件" min-width="120" show-overflow-tooltip />
+        </el-table>
+        <div style="margin-top:8px;display:flex;justify-content:flex-end">
+          <el-pagination
+            v-model:current-page="importAttPage"
+            v-model:page-size="importAttPageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            layout="total, sizes, prev, pager, next"
+            :total="importParseData.attendances.length"
+            size="small"
+            background
+          />
+        </div>
+      </div>
+
+      <!-- Step 3：入库结果 -->
+      <div v-else-if="importStep === 3">
+        <el-alert
+          :title="`入库完成，共入库 ${importSaveTotal} 条记录`"
+          :type="importSaveTotal > 0 ? 'success' : 'warning'"
+          show-icon :closable="false"
+        />
+      </div>
+
+      <template #footer>
+        <template v-if="importStep === 1">
+          <el-button @click="importDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="importLoading"
+            :disabled="!importWorkFile || !importAttFile || (isAdmin && !importOrgId)"
+            @click="doImportParse">开始解析</el-button>
+        </template>
+        <template v-else-if="importStep === 2">
+          <el-button @click="importStep = 1">上一步</el-button>
+          <el-button type="warning" :loading="importLoading" @click="doImportValidate"
+            v-if="!importValidated">校验</el-button>
+          <span v-else style="margin-right:16px;color:var(--el-color-success);font-size:13px">校验已完成</span>
+          <el-button type="primary" :loading="importLoading"
+            :disabled="importParseData.workRecords.length === 0"
+            @click="doImportSave">入库</el-button>
+        </template>
+        <template v-else>
+          <el-button type="primary" @click="importDialogVisible = false">关闭</el-button>
+        </template>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -326,6 +473,33 @@ const parseData = ref({ workRecords: [], attendances: [] })
 const saveTotal = ref(0)
 const fileList = ref([])
 const uploadRef = ref()
+
+// 导入初始化
+const importDialogVisible = ref(false)
+const importLoading = ref(false)
+const importStep = ref(1)
+const importOrgId = ref(null)
+const importWorkFile = ref(null)
+const importAttFile = ref(null)
+const importWorkUploadRef = ref()
+const importAttUploadRef = ref()
+const importParseData = ref({ workRecords: [], attendances: [] })
+const importValidated = ref(false)
+const importSaveTotal = ref(0)
+const importStat = reactive({ pass: 0, fail: 0, noAtt: 0 })
+const importAttPage = ref(1)
+const importAttPageSize = ref(20)
+
+const importAttPageData = computed(() => {
+  const list = importParseData.value.attendances || []
+  const start = (importAttPage.value - 1) * importAttPageSize.value
+  return list.slice(start, start + importAttPageSize.value)
+})
+
+function onImportWorkChange(file) { importWorkFile.value = file }
+function onImportWorkRemove() { importWorkFile.value = null }
+function onImportAttChange(file) { importAttFile.value = file }
+function onImportAttRemove() { importAttFile.value = null }
 
 // 考勤明细
 const attDialogVisible = ref(false)
@@ -470,6 +644,142 @@ async function doSave() {
   }
 }
 
+function calcImportStat() {
+  const records = importParseData.value.workRecords
+  importStat.pass = records.filter(r => r.attendanceVerified === 1).length
+  importStat.fail = records.filter(r => r.attendanceVerified === 0).length
+  importStat.noAtt = records.filter(r => r.attendanceVerified == null).length
+}
+
+function resetImport() {
+  importStep.value = 1
+  importOrgId.value = null
+  importWorkFile.value = null
+  importAttFile.value = null
+  importWorkUploadRef.value?.clearFiles()
+  importAttUploadRef.value?.clearFiles()
+  importParseData.value = { workRecords: [], attendances: [] }
+  importAttPage.value = 1
+  importValidated.value = false
+  importSaveTotal.value = 0
+}
+
+async function doImportParse() {
+  if (!importWorkFile.value || !importAttFile.value) return
+  if (isAdmin && !importOrgId.value) {
+    ElMessage.warning('请先选择项目所属公司')
+    return
+  }
+  importLoading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('files', importWorkFile.value.raw)
+    formData.append('files', importAttFile.value.raw)
+    if (isAdmin) {
+      const found = orgList.value.find(o => o.id === importOrgId.value)
+      if (found) formData.append('companyName', found.orgName)
+      formData.append('orgId', importOrgId.value)
+    } else {
+      formData.append('companyName', selectedOrgName.value)
+      formData.append('orgId', String(currentUser.orgId))
+    }
+    const res = await baseLib.batchParse(formData)
+    if (res.data.code === 200) {
+      importParseData.value = { workRecords: res.data.workRecords || [], attendances: res.data.attendances || [] }
+      importAttPage.value = 1
+      importValidated.value = false
+      importStep.value = 2
+    } else {
+      ElMessage.error('解析失败')
+    }
+  } catch (e) {
+    ElMessage.error('解析失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    importLoading.value = false
+  }
+}
+
+async function doImportValidate() {
+  importLoading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('files', importWorkFile.value.raw)
+    formData.append('files', importAttFile.value.raw)
+    if (isAdmin) {
+      const found = orgList.value.find(o => o.id === importOrgId.value)
+      if (found) formData.append('companyName', found.orgName)
+      formData.append('orgId', importOrgId.value)
+    } else {
+      formData.append('companyName', selectedOrgName.value)
+      formData.append('orgId', String(currentUser.orgId))
+    }
+    const res = await baseLib.batchParse(formData)
+    if (res.data.code === 200) {
+      importParseData.value = { workRecords: res.data.workRecords || [], attendances: res.data.attendances || [] }
+      importAttPage.value = 1
+      importValidated.value = true
+      calcImportStat()
+      ElMessage.success('校验完成')
+    } else {
+      ElMessage.error('校验失败')
+    }
+  } catch (e) {
+    ElMessage.error('校验失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    importLoading.value = false
+  }
+}
+
+async function doImportSave() {
+  importLoading.value = true
+  try {
+    const res = await baseLib.batchSave({
+      workRecords: importParseData.value.workRecords,
+      attendances: importParseData.value.attendances
+    })
+    if (res.data.code === 200) {
+      importSaveTotal.value = res.data.total
+      importStep.value = 3
+      loadData()
+    } else {
+      ElMessage.error('入库失败')
+    }
+  } catch (e) {
+    ElMessage.error('入库失败：' + (e.response?.data?.message || e.message))
+  } finally {
+    importLoading.value = false
+  }
+}
+
+function showImportAttendance(row) {
+  attRow.value = row
+  attLoading.value = false
+  attList.value = []
+  attTotalSigned.value = 0
+
+  const signedDates = new Set(
+    (importParseData.value.attendances || [])
+      .filter(a => a.name === row.name)
+      .map(a => a.checkDate)
+  )
+
+  const start = new Date(row.actualStartDate)
+  const end = new Date(row.actualEndDate)
+  const list = []
+  let signed = 0
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().slice(0, 10)
+    const dow = d.getDay()
+    const isWorkday = dow !== 0 && dow !== 6
+    const isSigned = signedDates.has(dateStr)
+    if (isSigned) signed++
+    list.push({ checkDate: dateStr, isWorkday, signed: isSigned })
+  }
+  attList.value = list
+  attTotalSigned.value = signed
+  attDialogVisible.value = true
+}
+
 async function loadData() {
   loading.value = true
   try {
@@ -602,4 +912,11 @@ onMounted(async () => {
 .upload-text { margin-top: 10px; font-size: 14px; color: var(--c-text-2); }
 .upload-text em { color: var(--c-gold); font-style: normal; font-weight: 500; }
 .upload-tip { font-size: 12px; color: var(--c-text-3); margin-top: 6px; text-align: center; }
+
+.inline-upload :deep(.el-upload-list) { display: inline-flex; align-items: center; margin-left: 12px; }
+.upload-tip-inline { font-size: 12px; color: var(--c-text-3); margin-left: 12px; }
+.name-link { color: var(--el-color-primary); cursor: pointer; }
+.name-link:hover { color: var(--el-color-primary-light-3); }
+.att-tag-yes { display:inline-block;padding:0 6px;font-size:12px;line-height:20px;border-radius:4px;color:#fff;background:var(--el-color-success); }
+.att-tag-no  { display:inline-block;padding:0 6px;font-size:12px;line-height:20px;border-radius:4px;color:#909399;background:var(--el-color-info-light-5); }
 </style>

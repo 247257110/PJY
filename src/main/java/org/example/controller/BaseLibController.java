@@ -293,6 +293,7 @@ public class BaseLibController {
                         || lower.endsWith(".docx") || lower.endsWith(".doc")) {
                     parsed = pdfParseService.parseFileToResult(file, filename);
                 } else {
+                    //PDF
                     parsed = aiParseService.parseFileToResultKimi(file, filename);
                 }
 

@@ -19,5 +19,6 @@ public interface WorkRecordMapper {
 
     WorkRecord findById(@Param("id") Long id);
 
-    void updateAttendanceVerified(@Param("id") Long id, @Param("val") Integer val);
+    void updateAttendanceVerified(@Param("id") Long id, @Param("val") Integer val,
+                                  @Param("attendanceDays") java.math.BigDecimal attendanceDays);
 }
