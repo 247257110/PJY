@@ -35,7 +35,8 @@ public class PdfParseService {
         DateTimeFormatter.ofPattern("yyyy/MM/dd"),
         DateTimeFormatter.ofPattern("yyyy-MM-dd"),
         DateTimeFormatter.ofPattern("yyyy年MM月dd日"),
-        DateTimeFormatter.ofPattern("yyyy.MM.dd")
+        DateTimeFormatter.ofPattern("yyyy.MM.dd"),
+            DateTimeFormatter.ofPattern("yyyy-M-d"),
     };
 
     public List<TempRecord> parse(MultipartFile file, String batchId) throws Exception {
@@ -332,7 +333,13 @@ public class PdfParseService {
                 if (DateUtil.isCellDateFormatted(cell)) {
                     yield cell.getLocalDateTimeCellValue().toLocalDate().toString();
                 }
-                yield String.valueOf((long) cell.getNumericCellValue());
+                double val = cell.getNumericCellValue();
+                if (val == 0.0) yield "";
+                // 去除小数点尾部零，避免 1.0 变成 "1"
+                if (val == Math.floor(val) && !Double.isInfinite(val)) {
+                    yield String.valueOf((long) val);
+                }
+                yield String.valueOf(val);
             }
             case BOOLEAN -> String.valueOf(cell.getBooleanCellValue());
             default -> "";
@@ -549,13 +556,18 @@ public class PdfParseService {
             if (name != null && !name.isBlank()) lastName = name.trim();
             if (lastName == null) continue;
             // 检测上午/下午标记
+            boolean rowHasTimeMark = false;
             if (timeColIdx >= 0) {
                 String timeMark = getCellString(row.getCell(timeColIdx));
-                if (timeMark != null) {
+                if (timeMark != null && !timeMark.isBlank()) {
+                    rowHasTimeMark = true;
                     if (timeMark.contains("下") || timeMark.contains("下午")) isMorning = false;
                     else if (timeMark.contains("上") || timeMark.contains("上午")) isMorning = true;
                 }
             }
+            // 既无姓名也无时间标记的行（如"说明"行），跳过
+            boolean rowHasName = name != null && !name.isBlank();
+            if (!rowHasName && !rowHasTimeMark) continue;
             for (int ci = 0; ci < dateCols.size() && ci < row.getLastCellNum(); ci++) {
                 LocalDate date = dateCols.get(ci);
                 if (date == null) continue;

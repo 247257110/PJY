@@ -5,6 +5,7 @@ import Login from '../views/Login.vue'
 import UserManage from '../views/sys/UserManage.vue'
 import RoleManage from '../views/sys/RoleManage.vue'
 import OrgManage from '../views/sys/OrgManage.vue'
+import ProjectManage from '../views/sys/ProjectManage.vue'
 
 const routes = [
   { path: '/login', component: Login, meta: { public: true } },
@@ -13,6 +14,7 @@ const routes = [
   { path: '/verify', component: Verify, meta: { title: '项目验收材料校验', menuKey: 'verify' } },
   { path: '/sys/user', component: UserManage, meta: { title: '用户管理', menuKey: 'sys:user' } },
   { path: '/sys/role', component: RoleManage, meta: { title: '角色管理', menuKey: 'sys:role' } },
+  { path: '/sys/project', component: ProjectManage, meta: { title: '项目管理维护', menuKey: 'sys:project' } },
   { path: '/sys/org', component: OrgManage, meta: { title: '机构管理', menuKey: 'sys:org' } }
 ]
 

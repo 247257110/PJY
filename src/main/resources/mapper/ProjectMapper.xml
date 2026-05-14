@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.example.mapper.ProjectMapper">
+
+    <select id="list" resultType="org.example.entity.Project">
+        SELECT * FROM project
+        <where>
+            <if test="orgId != null">AND org_id = #{orgId}</if>
+            <if test="projectName != null and projectName != ''">AND project_name LIKE CONCAT('%', #{projectName}, '%')</if>
+        </where>
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="findById" resultType="org.example.entity.Project">
+        SELECT * FROM project WHERE id = #{id}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO project (org_id, company_name, order_no, project_no, project_name,
+            order_person_months, order_amount, order_start_date, order_end_date,
+            bank_responsible, company_responsible, order_status)
+        VALUES (#{orgId}, #{companyName}, #{orderNo}, #{projectNo}, #{projectName},
+            #{orderPersonMonths}, #{orderAmount}, #{orderStartDate}, #{orderEndDate},
+            #{bankResponsible}, #{companyResponsible}, #{orderStatus})
+    </insert>
+
+    <update id="update">
+        UPDATE project
+        <set>
+            <if test="orgId != null">org_id = #{orgId},</if>
+            <if test="companyName != null">company_name = #{companyName},</if>
+            <if test="orderNo != null">order_no = #{orderNo},</if>
+            <if test="projectNo != null">project_no = #{projectNo},</if>
+            <if test="projectName != null">project_name = #{projectName},</if>
+            <if test="orderPersonMonths != null">order_person_months = #{orderPersonMonths},</if>
+            <if test="orderAmount != null">order_amount = #{orderAmount},</if>
+            <if test="orderStartDate != null">order_start_date = #{orderStartDate},</if>
+            <if test="orderEndDate != null">order_end_date = #{orderEndDate},</if>
+            <if test="bankResponsible != null">bank_responsible = #{bankResponsible},</if>
+            <if test="companyResponsible != null">company_responsible = #{companyResponsible},</if>
+            <if test="orderStatus != null">order_status = #{orderStatus},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM project WHERE id = #{id}
+    </delete>
+
+    <select id="listByOrg" resultType="org.example.entity.Project">
+        SELECT id, project_name, order_no FROM project
+        WHERE org_id = #{orgId}
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>

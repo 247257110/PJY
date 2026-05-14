@@ -88,3 +88,12 @@ export const sysOrg = {
   update: (id, data) => http.put(`/sys/org/${id}`, data),
   delete: (id) => http.delete(`/sys/org/${id}`)
 }
+
+export const sysProject = {
+  list: (params) => http.get('/sys/project/list', { params }),
+  getById: (id) => http.get(`/sys/project/${id}`),
+  add: (data) => http.post('/sys/project', data),
+  update: (id, data) => http.put(`/sys/project/${id}`, data),
+  delete: (id) => http.delete(`/sys/project/${id}`),
+  listByOrg: (orgId) => http.get('/sys/project/by-org', { params: { orgId } })
+}

@@ -117,22 +117,43 @@ ALTER TABLE temp_record
     ADD COLUMN org_id   BIGINT       DEFAULT NULL COMMENT '机构ID'   AFTER source_file,
     ADD COLUMN org_name VARCHAR(200) DEFAULT NULL COMMENT '机构名称' AFTER org_id;
 
+-- 项目表
+CREATE TABLE IF NOT EXISTS project (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  org_id BIGINT NOT NULL COMMENT '机构ID',
+  company_name VARCHAR(200) COMMENT '机构/公司',
+  order_no VARCHAR(100) COMMENT '订单编号',
+  project_no VARCHAR(100) COMMENT '项目编号',
+  project_name VARCHAR(200) COMMENT '项目名称/订单名称',
+  order_person_months DECIMAL(10,2) COMMENT '订单人月数',
+  order_amount DECIMAL(15,2) COMMENT '订单金额',
+  order_start_date DATE COMMENT '订单开始时间',
+  order_end_date DATE COMMENT '订单结束时间',
+  bank_responsible VARCHAR(50) COMMENT '行方负责人',
+  company_responsible VARCHAR(50) COMMENT '公司方负责人',
+  order_status VARCHAR(20) DEFAULT '验收未核对' COMMENT '订单状态',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_org_id (org_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目表';
+
+-- work_record / temp_record 增加订单编号字段
+ALTER TABLE work_record ADD COLUMN order_no VARCHAR(100) DEFAULT NULL COMMENT '订单编号' AFTER project_name;
+ALTER TABLE temp_record ADD COLUMN order_no VARCHAR(100) DEFAULT NULL COMMENT '订单编号' AFTER project_name;
+
 -- 初始化菜单数据
 INSERT IGNORE INTO sys_menu (menu_name, menu_key, path, icon, sort) VALUES
-('验收材料基础库',   'base-lib',  '/base-lib',  'DataBoard',       1),
-('项目验收材料校验', 'verify',    '/verify',    'DocumentChecked', 2),
-('用户管理',         'sys:user',  '/sys/user',  'User',            3),
-('角色管理',         'sys:role',  '/sys/role',  'UserFilled',      4),
-('机构管理',         'sys:org',   '/sys/org',   'OfficeBuilding',  5);
+
+('项目管理维护',     'sys:project',  '/sys/project',  'Folder',          3);
+
 
 -- ADMIN 角色拥有全部菜单
 INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
 SELECT r.id, m.id FROM sys_role r, sys_menu m WHERE r.role_code = 'ADMIN';
 
--- USER 角色只有核心功能菜单
+-- USER 角色只有核心功能菜单（包含项目管理维护）
 INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
 SELECT r.id, m.id FROM sys_role r, sys_menu m
-WHERE r.role_code = 'USER' AND m.menu_key IN ('base-lib', 'verify');
+WHERE r.role_code = 'USER' AND m.menu_key IN ('base-lib', 'sys:project', 'verify');
 
 
 
