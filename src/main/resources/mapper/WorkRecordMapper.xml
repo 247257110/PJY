@@ -14,11 +14,11 @@
     </select>
 
     <insert id="insertBatch" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO work_record (company_name, name, project_name, actual_start_date, actual_end_date,
+        INSERT INTO work_record (company_name, name, project_name, order_no, actual_start_date, actual_end_date,
             actual_days, standard_days, attendance_days, work_content, source_file, org_id, org_name, attendance_verified)
         VALUES
         <foreach collection="list" item="r" separator=",">
-            (#{r.companyName}, #{r.name}, #{r.projectName}, #{r.actualStartDate}, #{r.actualEndDate},
+            (#{r.companyName}, #{r.name}, #{r.projectName}, #{r.orderNo}, #{r.actualStartDate}, #{r.actualEndDate},
              #{r.actualDays}, #{r.standardDays}, #{r.attendanceDays}, #{r.workContent}, #{r.sourceFile},
              #{r.orgId}, #{r.orgName}, #{r.attendanceVerified})
         </foreach>

@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import org.example.util.ChineseHolidayUtil;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -61,41 +62,81 @@ public class VerifyService {
 
         // ── 2. 考勤天数校验 ──────────────────────────────────────
         List<TempAttendanceRecord> attList = tempAttendanceRecordMapper.listByBatchId(batchId);
-        // 按姓名统计有效考勤天数（上午或下午为"有"则计1天，同一天只算1次）
-        Map<String, Set<String>> nameToAttDates = new HashMap<>();
-        for (TempAttendanceRecord ta : attList) {
-            if (ta.getName() == null || ta.getCheckDate() == null) continue;
-            boolean hasAtt = "有".equals(ta.getMorning()) || "有".equals(ta.getAfternoon());
-            if (hasAtt) {
-                nameToAttDates.computeIfAbsent(ta.getName().trim(), k -> new HashSet<>())
-                        .add(ta.getCheckDate().toString());
-            }
-        }
+        // 按姓名分组考勤记录
+        Map<String, List<TempAttendanceRecord>> attByName = attList.stream()
+                .filter(a -> a.getName() != null)
+                .collect(Collectors.groupingBy(a -> a.getName().trim()));
 
-        List<AttendanceMismatch> mismatches = new ArrayList<>();
+        // 按姓名+项目聚合考勤结果（同一人可能有多个 TempRecord，取最大考勤天数）
+        java.util.LinkedHashMap<String, AttendanceMismatch> mismatchMap = new java.util.LinkedHashMap<>();
+        java.util.LinkedHashMap<String, java.math.BigDecimal> summaryMap = new java.util.LinkedHashMap<>();
+
         for (TempRecord t : tempList) {
             if (t.getName() == null || t.getStandardDays() == null) continue;
             String name = t.getName().trim();
-            int attDays = nameToAttDates.getOrDefault(name, Collections.emptySet()).size();
-            java.math.BigDecimal attDaysBD = java.math.BigDecimal.valueOf(attDays);
 
+            List<TempAttendanceRecord> personAtt = attByName.getOrDefault(name, Collections.emptyList());
+            long attDays;
+            if (t.getActualStartDate() != null && t.getActualEndDate() != null) {
+                Set<LocalDate> workdays = getWorkdays(t.getActualStartDate(), t.getActualEndDate());
+                attDays = personAtt.stream()
+                        .filter(a -> a.getCheckDate() != null && workdays.contains(a.getCheckDate()))
+                        .filter(a -> "有".equals(a.getMorning()) || "有".equals(a.getAfternoon()))
+                        .map(TempAttendanceRecord::getCheckDate)
+                        .distinct()
+                        .count();
+            } else {
+                attDays = personAtt.stream()
+                        .filter(a -> "有".equals(a.getMorning()) || "有".equals(a.getAfternoon()))
+                        .map(TempAttendanceRecord::getCheckDate)
+                        .distinct()
+                        .count();
+            }
+
+            java.math.BigDecimal attDaysBD = java.math.BigDecimal.valueOf(attDays);
             // 回写 attendance_days 到 temp_record
             tempRecordMapper.updateAttendanceDays(t.getId(), attDaysBD);
 
-            // 不一致则记录
-            if (t.getStandardDays().compareTo(attDaysBD) != 0) {
-                AttendanceMismatch m = new AttendanceMismatch();
-                m.setName(name);
-                m.setProjectName(t.getProjectName());
-                m.setStandardDays(t.getStandardDays());
-                m.setAttendanceDays(attDaysBD);
-                mismatches.add(m);
+            // 汇总每人考勤有效天数（取最大值）
+            summaryMap.merge(name, attDaysBD,
+                    (old, cur) -> old.compareTo(cur) >= 0 ? old : cur);
+
+            // 按姓名+项目聚合不一致明细
+            String key = name + "|" + (t.getProjectName() != null ? t.getProjectName() : "");
+            AttendanceMismatch existing = mismatchMap.get(key);
+            if (existing == null) {
+                if (t.getStandardDays().compareTo(attDaysBD) != 0) {
+                    AttendanceMismatch m = new AttendanceMismatch();
+                    m.setName(name);
+                    m.setProjectName(t.getProjectName());
+                    m.setStandardDays(t.getStandardDays());
+                    m.setAttendanceDays(attDaysBD);
+                    mismatchMap.put(key, m);
+                }
+            } else {
+                // 同一姓名+项目的多条记录，取最大的考勤天数
+                if (attDaysBD.compareTo(existing.getAttendanceDays()) > 0) {
+                    existing.setAttendanceDays(attDaysBD);
+                    existing.setStandardDays(t.getStandardDays());
+                }
             }
+        }
+
+        List<AttendanceMismatch> mismatches = new ArrayList<>(mismatchMap.values());
+
+        // 构造考勤有效天数汇总
+        List<Map<String, Object>> attendanceSummary = new ArrayList<>();
+        for (Map.Entry<String, java.math.BigDecimal> e : summaryMap.entrySet()) {
+            Map<String, Object> s = new HashMap<>();
+            s.put("name", e.getKey());
+            s.put("attendanceDays", e.getValue());
+            attendanceSummary.add(s);
         }
 
         Map<String, Object> result = new HashMap<>();
         result.put("conflicts", conflicts);
         result.put("attendanceMismatches", mismatches);
+        result.put("attendanceSummary", attendanceSummary);
         return result;
     }
 
@@ -129,6 +170,7 @@ public class VerifyService {
             w.setCompanyName(t.getCompanyName());
             w.setName(t.getName());
             w.setProjectName(t.getProjectName());
+            w.setOrderNo(t.getOrderNo());
             w.setActualStartDate(t.getActualStartDate());
             w.setActualEndDate(t.getActualEndDate());
             w.setActualDays(t.getActualDays());
@@ -185,6 +227,18 @@ public class VerifyService {
         // 4. 清理临时表
         tempAttendanceRecordMapper.deleteByBatchId(batchId);
         tempRecordMapper.deleteByBatchId(batchId);
+    }
+
+    private Set<LocalDate> getWorkdays(LocalDate start, LocalDate end) {
+        Set<LocalDate> days = new HashSet<>();
+        LocalDate cur = start;
+        while (!cur.isAfter(end)) {
+            if (ChineseHolidayUtil.isWorkday(cur)) {
+                days.add(cur);
+            }
+            cur = cur.plusDays(1);
+        }
+        return days;
     }
 
     public void cancel(String batchId) {

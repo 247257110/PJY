@@ -11,6 +11,7 @@ public class WorkRecord {
     private String companyName;
     private String name;
     private String projectName;
+    private String orderNo;
     private LocalDate actualStartDate;
     private LocalDate actualEndDate;
     private BigDecimal actualDays;

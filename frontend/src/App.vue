@@ -13,6 +13,10 @@
           <el-icon><DataBoard /></el-icon>
           <span>验收材料基础库</span>
         </router-link>
+        <router-link v-if="hasMenu('sys:project')" to="/sys/project" class="nav-item" active-class="active">
+          <el-icon><Folder /></el-icon>
+          <span>项目管理维护</span>
+        </router-link>
         <router-link v-if="hasMenu('verify')" to="/verify" class="nav-item" active-class="active">
           <el-icon><DocumentChecked /></el-icon>
           <span>项目验收材料校验</span>

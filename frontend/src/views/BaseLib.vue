@@ -118,7 +118,7 @@
     </el-dialog>
 
     <!-- 手工录入对话框 -->
-    <el-dialog v-model="manualDialogVisible" title="手工录入" width="560px" @close="resetManual">
+    <el-dialog v-model="manualDialogVisible" title="手工录入" width="560px" @close="resetManual" @open="onManualDialogOpen">
       <el-form :model="manualForm" :rules="manualRules" ref="manualFormRef" label-width="90px">
         <el-form-item label="机构/公司">
           <el-select v-if="isAdmin" v-model="manualForm.orgId" placeholder="请选择公司" style="width:100%" clearable
@@ -127,11 +127,17 @@
           </el-select>
           <el-input v-else :value="selectedOrgName" disabled />
         </el-form-item>
+        <el-form-item label="项目订单选择">
+          <el-select v-model="manualForm.projectId" placeholder="请先选择项目订单" :disabled="!manualForm.orgId"
+            @change="onManualProjectChange" clearable filterable style="width:100%">
+            <el-option v-for="p in projectOptions" :key="p.id" :label="`【${p.orderNo}】${p.projectName}`" :value="p.id" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="姓名" prop="name">
           <el-input v-model="manualForm.name" placeholder="请输入姓名" />
         </el-form-item>
         <el-form-item label="项目名称" prop="projectName">
-          <el-input v-model="manualForm.projectName" placeholder="请输入项目名称" />
+          <el-input v-model="manualForm.projectName" placeholder="请先通过项目选择自动填入" disabled />
         </el-form-item>
         <el-form-item label="开始日期" prop="actualStartDate">
           <el-date-picker v-model="manualForm.actualStartDate" type="date" value-format="YYYY-MM-DD"
@@ -158,7 +164,7 @@
     </el-dialog>
 
     <!-- 批量初始化对话框 -->
-    <el-dialog v-model="batchDialogVisible" title="批量初始化" width="860px" @close="resetBatch">
+    <el-dialog v-model="batchDialogVisible" title="批量初始化" width="860px" @close="resetBatch" @open="onBatchDialogOpen">
       <!-- 步骤条 -->
       <el-steps :active="batchStep - 1" finish-status="success" simple style="margin-bottom:24px">
         <el-step title="上传解析" />
@@ -170,10 +176,17 @@
       <div v-if="batchStep === 1">
         <el-form label-width="90px" style="margin-bottom:16px">
           <el-form-item label="机构/公司">
-            <el-select v-if="isAdmin" v-model="selectedOrgId" placeholder="请选择项目所属公司" style="width:300px" clearable>
+            <el-select v-if="isAdmin" v-model="selectedOrgId" placeholder="请选择项目所属公司" style="width:300px" clearable
+              @change="onBatchOrgChange">
               <el-option v-for="org in orgList" :key="org.id" :label="org.orgName" :value="org.id" />
             </el-select>
             <el-input v-else :value="selectedOrgName" disabled style="width:300px" />
+          </el-form-item>
+          <el-form-item label="项目选择">
+            <el-select v-model="selectedBatchProjectId" placeholder="请先选择机构" :disabled="!selectedOrgId"
+              @change="onBatchProjectChange" clearable filterable style="width:300px">
+              <el-option v-for="p in projectOptions" :key="p.id" :label="`【${p.orderNo}】${p.projectName}`" :value="p.id" />
+            </el-select>
           </el-form-item>
         </el-form>
         <el-upload ref="uploadRef" multiple :auto-upload="false" :on-change="onFileChange" :on-remove="onFileRemove"
@@ -248,7 +261,7 @@
     </el-dialog>
 
     <!-- 导入初始化对话框 -->
-    <el-dialog v-model="importDialogVisible" title="导入初始化" width="960px" @close="resetImport">
+    <el-dialog v-model="importDialogVisible" title="导入初始化" width="960px" @close="resetImport" @open="onImportDialogOpen">
       <el-steps :active="importStep - 1" finish-status="success" simple style="margin-bottom:24px">
         <el-step title="导入文件" />
         <el-step title="数据预览" />
@@ -259,10 +272,17 @@
       <div v-if="importStep === 1" v-loading="importLoading" element-loading-text="解析加载中...">
         <el-form label-width="200px" style="margin-bottom:16px">
           <el-form-item label="机构/公司">
-            <el-select v-if="isAdmin" v-model="importOrgId" placeholder="请选择项目所属公司" style="width:300px" clearable>
+            <el-select v-if="isAdmin" v-model="importOrgId" placeholder="请选择项目所属公司" style="width:300px" clearable
+              @change="onImportOrgChange">
               <el-option v-for="org in orgList" :key="org.id" :label="org.orgName" :value="org.id" />
             </el-select>
             <el-input v-else :value="selectedOrgName" disabled style="width:300px" />
+          </el-form-item>
+          <el-form-item label="项目选择">
+            <el-select v-model="selectedImportProjectId" placeholder="请先选择机构" :disabled="!importOrgId"
+              @change="onImportProjectChange" clearable filterable style="width:300px">
+              <el-option v-for="p in projectOptions" :key="p.id" :label="`【${p.orderNo}】${p.projectName}`" :value="p.id" />
+            </el-select>
           </el-form-item>
           <el-form-item label="合作公司人员工作内容及时间统计表">
             <el-upload ref="importWorkUploadRef" :auto-upload="false" :limit="1"
@@ -396,7 +416,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading, EditPen } from '@element-plus/icons-vue'
-import { auth, baseLib, sysOrg } from '../api/index.js'
+import { auth, baseLib, sysOrg, sysProject } from '../api/index.js'
 
 const loading = ref(false)
 const tableData = ref([])
@@ -409,8 +429,8 @@ const manualDialogVisible = ref(false)
 const manualLoading = ref(false)
 const manualFormRef = ref(null)
 const manualForm = reactive({
-  orgId: null, orgName: null,
-  name: '', projectName: '',
+  orgId: null, orgName: null, projectId: null,
+  name: '', projectName: '', orderNo: '',
   actualStartDate: null, actualEndDate: null,
   actualDays: null, standardDays: null,
   workContent: ''
@@ -426,14 +446,31 @@ const manualRules = {
 function onManualOrgChange(val) {
   const found = orgList.value.find(o => o.id === val)
   manualForm.orgName = found ? found.orgName : null
+  // 机构变化时清空项目选择
+  manualForm.projectId = null
+  manualForm.projectName = ''
+  manualForm.orderNo = ''
+  if (val) loadProjects(val)
+}
+
+function onManualProjectChange(val) {
+  const found = projectOptions.value.find(p => p.id === val)
+  if (found) {
+    manualForm.projectName = found.projectName
+    manualForm.orderNo = found.orderNo || ''
+  } else {
+    manualForm.projectName = ''
+    manualForm.orderNo = ''
+  }
 }
 
 function resetManual() {
-  manualForm.orgId = null; manualForm.orgName = null
-  manualForm.name = ''; manualForm.projectName = ''
+  manualForm.orgId = null; manualForm.orgName = null; manualForm.projectId = null
+  manualForm.name = ''; manualForm.projectName = ''; manualForm.orderNo = ''
   manualForm.actualStartDate = null; manualForm.actualEndDate = null
   manualForm.actualDays = null; manualForm.standardDays = null
   manualForm.workContent = ''
+  projectOptions.value = []
   manualFormRef.value?.resetFields()
 }
 
@@ -446,7 +483,7 @@ async function doManualSave() {
   }
   manualLoading.value = true
   try {
-    const payload = { ...manualForm }
+    const payload = { ...manualForm, orderNo: manualForm.orderNo }
     if (!isAdmin) {
       payload.orgId = currentUser.orgId
       payload.orgName = selectedOrgName.value
@@ -495,6 +532,72 @@ const importAttPageData = computed(() => {
   const start = (importAttPage.value - 1) * importAttPageSize.value
   return list.slice(start, start + importAttPageSize.value)
 })
+
+// 项目选择
+const projectOptions = ref([])
+const selectedBatchProjectId = ref(null)
+const selectedImportProjectId = ref(null)
+const selectedBatchProjectName = ref('')
+const selectedBatchOrderNo = ref('')
+const selectedImportProjectName = ref('')
+const selectedImportOrderNo = ref('')
+
+async function loadProjects(orgId) {
+  if (!orgId) { projectOptions.value = []; return }
+  try {
+    const res = await sysProject.listByOrg(orgId)
+    if (res.data.code === 200) projectOptions.value = res.data.data || []
+  } catch { projectOptions.value = [] }
+}
+
+function onBatchOrgChange(orgId) {
+  selectedBatchProjectId.value = null
+  selectedBatchProjectName.value = ''
+  selectedBatchOrderNo.value = ''
+  projectOptions.value = []
+  if (orgId) loadProjects(orgId)
+}
+
+function onBatchProjectChange(val) {
+  const found = projectOptions.value.find(p => p.id === val)
+  selectedBatchProjectName.value = found ? found.projectName : ''
+  selectedBatchOrderNo.value = found ? (found.orderNo || '') : ''
+}
+
+function onImportOrgChange(orgId) {
+  selectedImportProjectId.value = null
+  selectedImportProjectName.value = ''
+  selectedImportOrderNo.value = ''
+  projectOptions.value = []
+  if (orgId) loadProjects(orgId)
+}
+
+function onImportProjectChange(val) {
+  const found = projectOptions.value.find(p => p.id === val)
+  selectedImportProjectName.value = found ? found.projectName : ''
+  selectedImportOrderNo.value = found ? (found.orderNo || '') : ''
+}
+
+function onManualDialogOpen() {
+  if (!isAdmin && currentUser.orgId) {
+    manualForm.orgId = currentUser.orgId
+    manualForm.orgName = currentUser.orgName || ''
+    loadProjects(currentUser.orgId)
+  }
+}
+
+function onBatchDialogOpen() {
+  if (!isAdmin && currentUser.orgId) {
+    loadProjects(currentUser.orgId)
+  }
+}
+
+function onImportDialogOpen() {
+  if (!isAdmin && currentUser.orgId) {
+    importOrgId.value = currentUser.orgId
+    loadProjects(currentUser.orgId)
+  }
+}
 
 function onImportWorkChange(file) { importWorkFile.value = file }
 function onImportWorkRemove() { importWorkFile.value = null }
@@ -594,6 +697,10 @@ function resetBatch() {
   fileList.value = []
   uploadRef.value?.clearFiles()
   if (isAdmin) selectedOrgId.value = null
+  selectedBatchProjectId.value = null
+  selectedBatchProjectName.value = ''
+  selectedBatchOrderNo.value = ''
+  projectOptions.value = []
 }
 
 async function doParse() {
@@ -609,6 +716,8 @@ async function doParse() {
     if (resolvedOrgName.value) formData.append('companyName', resolvedOrgName.value)
     const orgIdVal = isAdmin ? selectedOrgId.value : currentUser.orgId
     if (orgIdVal) formData.append('orgId', orgIdVal)
+    if (selectedBatchProjectName.value) formData.append('projectName', selectedBatchProjectName.value)
+    if (selectedBatchOrderNo.value) formData.append('orderNo', selectedBatchOrderNo.value)
     const res = await baseLib.batchParse(formData)
     if (res.data.code === 200) {
       parseData.value = { workRecords: res.data.workRecords || [], attendances: res.data.attendances || [] }
@@ -626,8 +735,13 @@ async function doParse() {
 async function doSave() {
   batchLoading.value = true
   try {
+    const records = parseData.value.workRecords.map(r => ({
+      ...r,
+      projectName: selectedBatchProjectName.value || r.projectName,
+      orderNo: selectedBatchOrderNo.value || r.orderNo
+    }))
     const res = await baseLib.batchSave({
-      workRecords: parseData.value.workRecords,
+      workRecords: records,
       attendances: parseData.value.attendances
     })
     if (res.data.code === 200) {
@@ -662,6 +776,10 @@ function resetImport() {
   importAttPage.value = 1
   importValidated.value = false
   importSaveTotal.value = 0
+  selectedImportProjectId.value = null
+  selectedImportProjectName.value = ''
+  selectedImportOrderNo.value = ''
+  projectOptions.value = []
 }
 
 async function doImportParse() {
@@ -683,6 +801,8 @@ async function doImportParse() {
       formData.append('companyName', selectedOrgName.value)
       formData.append('orgId', String(currentUser.orgId))
     }
+    if (selectedImportProjectName.value) formData.append('projectName', selectedImportProjectName.value)
+    if (selectedImportOrderNo.value) formData.append('orderNo', selectedImportOrderNo.value)
     const res = await baseLib.batchParse(formData)
     if (res.data.code === 200) {
       importParseData.value = { workRecords: res.data.workRecords || [], attendances: res.data.attendances || [] }
@@ -713,6 +833,8 @@ async function doImportValidate() {
       formData.append('companyName', selectedOrgName.value)
       formData.append('orgId', String(currentUser.orgId))
     }
+    if (selectedImportProjectName.value) formData.append('projectName', selectedImportProjectName.value)
+    if (selectedImportOrderNo.value) formData.append('orderNo', selectedImportOrderNo.value)
     const res = await baseLib.batchParse(formData)
     if (res.data.code === 200) {
       importParseData.value = { workRecords: res.data.workRecords || [], attendances: res.data.attendances || [] }
@@ -733,8 +855,13 @@ async function doImportValidate() {
 async function doImportSave() {
   importLoading.value = true
   try {
+    const records = importParseData.value.workRecords.map(r => ({
+      ...r,
+      projectName: selectedImportProjectName.value || r.projectName,
+      orderNo: selectedImportOrderNo.value || r.orderNo
+    }))
     const res = await baseLib.batchSave({
-      workRecords: importParseData.value.workRecords,
+      workRecords: records,
       attendances: importParseData.value.attendances
     })
     if (res.data.code === 200) {
@@ -829,6 +956,10 @@ onMounted(async () => {
 
   loadData()
   loadOrgList()
+  // 非 admin 预加载项目列表
+  if (!isAdmin && currentUser.orgId) {
+    loadProjects(currentUser.orgId)
+  }
 })
 </script>
 

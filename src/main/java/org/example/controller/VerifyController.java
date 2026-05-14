@@ -38,19 +38,18 @@ public class VerifyController {
 
     @PostMapping("/upload")
     public Map<String, Object> upload(Authentication auth,
-                                      @RequestParam("file") MultipartFile file,
+                                      @RequestParam("files") List<MultipartFile> files,
                                       @RequestParam(value = "orgId", required = false) Long orgId,
-                                      @RequestParam(value = "companyName", required = false) String companyName) {
+                                      @RequestParam(value = "companyName", required = false) String companyName,
+                                      @RequestParam(value = "projectName", required = false) String projectName,
+                                      @RequestParam(value = "orderNo", required = false) String orderNo) {
         Map<String, Object> result = new HashMap<>();
         try {
-            String filename = file.getOriginalFilename();
-            if (filename == null) {
+            if (files == null || files.isEmpty()) {
                 result.put("code", 400);
-                result.put("message", "文件名不能为空");
+                result.put("message", "请选择至少一个文件");
                 return result;
             }
-            String lower = filename.toLowerCase();
-            String batchId = UUID.randomUUID().toString().replace("-", "");
 
             // 非 admin 且未传 orgId，使用当前用户归属机构
             if (!dataPermissionHelper.isAdmin(auth) && orgId == null) {
@@ -68,83 +67,117 @@ public class VerifyController {
                 }
             }
 
-            // 使用 Kimi 解析，Excel/Word 用 pdfParseService，其余用 Kimi
-            ParseResult parsed;
-            if (lower.endsWith(".xlsx") || lower.endsWith(".xls")
-                    || lower.endsWith(".docx") || lower.endsWith(".doc")) {
-                parsed = pdfParseService.parseFileToResult(file, filename);
-            } else {
-                // PDF 使用AI解析
-                parsed = aiParseService.parseFileToResultKimi(file, filename);
-                System.out.println("VerifyController=>"+"TempRecord="+parsed.getWorkRecords()+"TempAttendanceRecord="+parsed.getAttendances().toString());
-            }
+            String batchId = UUID.randomUUID().toString().replace("-", "");
+            List<TempRecord> allRecords = new ArrayList<>();
+            List<TempAttendanceRecord> allTempAtts = new ArrayList<>();
 
-            // 将 WorkRecord 转换为 TempRecord
-            List<TempRecord> records = new ArrayList<>();
-            for (WorkRecord w : parsed.getWorkRecords()) {
-                TempRecord t = new TempRecord();
-                t.setBatchId(batchId);
-                t.setCompanyName(w.getCompanyName());
-                t.setName(w.getName());
-                t.setProjectName(w.getProjectName());
-                t.setActualStartDate(w.getActualStartDate());
-                t.setActualEndDate(w.getActualEndDate());
-                t.setActualDays(w.getActualDays());
-                t.setStandardDays(w.getStandardDays());
-                t.setWorkContent(w.getWorkContent());
-                t.setSourceFile(filename);
-                records.add(t);
+            for (MultipartFile file : files) {
+                String filename = file.getOriginalFilename();
+                if (filename == null) continue;
+                String lower = filename.toLowerCase();
+
+                // 使用 Kimi 解析，Excel/Word 用 pdfParseService，其余用 Kimi
+                ParseResult parsed;
+                if (lower.endsWith(".xlsx") || lower.endsWith(".xls")
+                        || lower.endsWith(".docx") || lower.endsWith(".doc")) {
+                    parsed = pdfParseService.parseFileToResult(file, filename);
+                } else {
+                    parsed = aiParseService.parseFileToResultKimi(file, filename);
+                }
+
+                // 将 WorkRecord 转换为 TempRecord
+                for (WorkRecord w : parsed.getWorkRecords()) {
+                    TempRecord t = new TempRecord();
+                    t.setBatchId(batchId);
+                    t.setCompanyName(w.getCompanyName());
+                    t.setName(w.getName());
+                    t.setProjectName(w.getProjectName());
+                    t.setActualStartDate(w.getActualStartDate());
+                    t.setActualEndDate(w.getActualEndDate());
+                    t.setActualDays(w.getActualDays());
+                    t.setStandardDays(w.getStandardDays());
+                    t.setWorkContent(w.getWorkContent());
+                    t.setSourceFile(filename);
+                    allRecords.add(t);
+                }
+
+                // 构建 TempAttendanceRecord
+                List<AttendanceRecord> attendances = parsed.getAttendances();
+                if (attendances != null) {
+                    for (AttendanceRecord ar : attendances) {
+                        TempAttendanceRecord ta = new TempAttendanceRecord();
+                        ta.setBatchId(batchId);
+                        ta.setName(ar.getName());
+                        ta.setProjectName(ar.getProjectName());
+                        ta.setCheckDate(ar.getCheckDate());
+                        ta.setMorning(ar.getMorning());
+                        ta.setAfternoon(ar.getAfternoon());
+                        ta.setSourceFile(ar.getSourceFile() != null ? ar.getSourceFile() : filename);
+                        allTempAtts.add(ta);
+                    }
+                }
             }
 
             // 将机构信息写入每条记录
             if (orgId != null) {
                 final Long orgIdFinal = orgId;
                 final String orgNameFinal = resolvedOrgName;
-                records.forEach(r -> { r.setOrgId(orgIdFinal); r.setOrgName(orgNameFinal); r.setCompanyName(orgNameFinal);});
+                allRecords.forEach(r -> { r.setOrgId(orgIdFinal); r.setOrgName(orgNameFinal); r.setCompanyName(orgNameFinal); });
+            }
+            // 将项目信息写入每条记录
+            if (projectName != null && !projectName.isBlank()) {
+                allRecords.forEach(r -> r.setProjectName(projectName));
+            }
+            if (orderNo != null && !orderNo.isBlank()) {
+                allRecords.forEach(r -> r.setOrderNo(orderNo));
             }
 
             // 插入 TempRecord（useGeneratedKeys 填充 id）
-            if (!records.isEmpty()) {
-                tempRecordMapper.insertBatch(records);
+            if (!allRecords.isEmpty()) {
+                tempRecordMapper.insertBatch(allRecords);
             }
 
             // 按姓名构建 name → tempRecordId 映射
-            Map<String, Long> nameToTempId = records.stream()
+            Map<String, Long> nameToTempId = allRecords.stream()
                     .filter(r -> r.getName() != null && r.getId() != null)
                     .collect(Collectors.toMap(
                             r -> r.getName().trim(),
                             TempRecord::getId,
                             (a, b) -> a));
 
-            // 构建并插入 TempAttendanceRecord
-            List<TempAttendanceRecord> tempAtts = new ArrayList<>();
-            List<AttendanceRecord> attendances = parsed.getAttendances();
-            if (attendances != null) {
-                for (AttendanceRecord ar : attendances) {
-                    TempAttendanceRecord ta = new TempAttendanceRecord();
-                    ta.setBatchId(batchId);
-                    ta.setName(ar.getName());
-                    ta.setProjectName(ar.getProjectName());
-                    ta.setCheckDate(ar.getCheckDate());
-                    ta.setMorning(ar.getMorning());
-                    ta.setAfternoon(ar.getAfternoon());
-                    ta.setSourceFile(ar.getSourceFile());
-                    if (ar.getName() != null) {
-                        ta.setTempRecordId(nameToTempId.get(ar.getName().trim()));
-                    }
-                    tempAtts.add(ta);
+            // 为 TempAttendanceRecord 回填 tempRecordId
+            for (TempAttendanceRecord ta : allTempAtts) {
+                if (ta.getName() != null) {
+                    ta.setTempRecordId(nameToTempId.get(ta.getName().trim()));
                 }
             }
-            if (!tempAtts.isEmpty()) {
-                tempAttendanceRecordMapper.insertBatch(tempAtts);
+
+            if (!allTempAtts.isEmpty()) {
+                tempAttendanceRecordMapper.insertBatch(allTempAtts);
+            }
+
+            // 考勤有效天数汇总（按姓名，去重统计日期）
+            Map<String, java.util.Set<String>> attNameDates = new LinkedHashMap<>();
+            for (TempAttendanceRecord ta : allTempAtts) {
+                if (ta.getName() == null || ta.getCheckDate() == null) continue;
+                if (!"有".equals(ta.getMorning()) && !"有".equals(ta.getAfternoon())) continue;
+                attNameDates.computeIfAbsent(ta.getName().trim(), k -> new HashSet<>())
+                        .add(ta.getCheckDate().toString());
+            }
+            List<Map<String, Object>> attendanceSummary = new ArrayList<>();
+            for (Map.Entry<String, java.util.Set<String>> e : attNameDates.entrySet()) {
+                Map<String, Object> s = new HashMap<>();
+                s.put("name", e.getKey());
+                s.put("attendanceDays", e.getValue().size());
+                attendanceSummary.add(s);
             }
 
             result.put("code", 200);
             result.put("batchId", batchId);
-            result.put("records", records);
-            result.put("attendances", tempAtts);
-            result.put("total", records.size());
-            System.out.println("result==>>>"+result.toString());
+            result.put("records", allRecords);
+            result.put("attendances", allTempAtts);
+            result.put("attendanceSummary", attendanceSummary);
+            result.put("total", allRecords.size());
         } catch (Exception e) {
             e.printStackTrace();
             result.put("code", 500);
@@ -168,6 +201,7 @@ public class VerifyController {
         result.put("pass", conflicts.isEmpty() && mismatches.isEmpty());
         result.put("conflicts", conflicts);
         result.put("attendanceMismatches", mismatches);
+        result.put("attendanceSummary", checkResult.get("attendanceSummary"));
         return result;
     }
 
@@ -229,9 +263,27 @@ public class VerifyController {
         }
         List<TempRecord> records = tempRecordMapper.listByBatchId(batchId);
         List<TempAttendanceRecord> atts = tempAttendanceRecordMapper.listByBatchId(batchId);
+
+        // 考勤有效天数汇总（按姓名，去重统计）
+        Map<String, java.util.Set<String>> nameDates = new LinkedHashMap<>();
+        for (TempAttendanceRecord ta : atts) {
+            if (ta.getName() == null || ta.getCheckDate() == null) continue;
+            if (!"有".equals(ta.getMorning()) && !"有".equals(ta.getAfternoon())) continue;
+            nameDates.computeIfAbsent(ta.getName().trim(), k -> new HashSet<>())
+                    .add(ta.getCheckDate().toString());
+        }
+        List<Map<String, Object>> attendanceSummary = new ArrayList<>();
+        for (Map.Entry<String, java.util.Set<String>> e : nameDates.entrySet()) {
+            Map<String, Object> s = new HashMap<>();
+            s.put("name", e.getKey());
+            s.put("attendanceDays", e.getValue().size());
+            attendanceSummary.add(s);
+        }
+
         result.put("code", 200);
         result.put("data", records);
         result.put("attendances", atts);
+        result.put("attendanceSummary", attendanceSummary);
         return result;
     }
 }

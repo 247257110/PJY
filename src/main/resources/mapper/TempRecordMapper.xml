@@ -4,11 +4,11 @@
 <mapper namespace="org.example.mapper.TempRecordMapper">
 
     <insert id="insertBatch" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO temp_record (batch_id, company_name, name, project_name, actual_start_date, actual_end_date,
+        INSERT INTO temp_record (batch_id, company_name, name, project_name, order_no, actual_start_date, actual_end_date,
             actual_days, standard_days, work_content, source_file, org_id, org_name)
         VALUES
         <foreach collection="list" item="r" separator=",">
-            (#{r.batchId}, #{r.companyName}, #{r.name}, #{r.projectName}, #{r.actualStartDate}, #{r.actualEndDate},
+            (#{r.batchId}, #{r.companyName}, #{r.name}, #{r.projectName}, #{r.orderNo}, #{r.actualStartDate}, #{r.actualEndDate},
              #{r.actualDays}, #{r.standardDays}, #{r.workContent}, #{r.sourceFile},
              #{r.orgId}, #{r.orgName})
         </foreach>

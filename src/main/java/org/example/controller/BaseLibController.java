@@ -73,7 +73,9 @@ public class BaseLibController {
             Authentication auth,
             @RequestParam("files") MultipartFile[] files,
             @RequestParam(value = "companyName", required = false) String companyName,
-            @RequestParam(value = "orgId", required = false) Long orgId) {
+            @RequestParam(value = "orgId", required = false) Long orgId,
+            @RequestParam(value = "projectName", required = false) String projectName,
+            @RequestParam(value = "orderNo", required = false) String orderNo) {
 
         if (!dataPermissionHelper.isAdmin(auth) && orgId == null) {
             SysUser currentUser = dataPermissionHelper.currentUser(auth);
@@ -93,6 +95,7 @@ public class BaseLibController {
                 ParseResult parsed = parseFile(file, filename);
                 List<WorkRecord> records = parsed.getWorkRecords();
                 applyOrgInfo(records, companyName, orgId, resolvedOrgName);
+                applyProjectInfo(records, projectName, orderNo);
                 allWorkRecords.addAll(records);
                 if (parsed.getAttendances() != null) allAttendances.addAll(parsed.getAttendances());
                 fileResult.put("success", true);
@@ -161,6 +164,15 @@ public class BaseLibController {
         }
     }
 
+    private void applyProjectInfo(List<WorkRecord> records, String projectName, String orderNo) {
+        if (projectName != null && !projectName.isBlank()) {
+            records.forEach(r -> r.setProjectName(projectName));
+        }
+        if (orderNo != null && !orderNo.isBlank()) {
+            records.forEach(r -> r.setOrderNo(orderNo));
+        }
+    }
+
     private List<WorkRecord> convertWorkRecords(List<Map<String, Object>> maps) {
         List<WorkRecord> list = new ArrayList<>();
         if (maps == null) return list;
@@ -169,6 +181,7 @@ public class BaseLibController {
             r.setCompanyName(str(m, "companyName"));
             r.setName(str(m, "name"));
             r.setProjectName(str(m, "projectName"));
+            r.setOrderNo(str(m, "orderNo"));
             r.setActualStartDate(m.get("actualStartDate") != null
                     ? java.time.LocalDate.parse(str(m, "actualStartDate")) : null);
             r.setActualEndDate(m.get("actualEndDate") != null
@@ -221,6 +234,7 @@ public class BaseLibController {
             r.setCompanyName(str(body, "companyName"));
             r.setName(str(body, "name"));
             r.setProjectName(str(body, "projectName"));
+            r.setOrderNo(str(body, "orderNo"));
             r.setActualStartDate(body.get("actualStartDate") != null
                     ? java.time.LocalDate.parse(str(body, "actualStartDate")) : null);
             r.setActualEndDate(body.get("actualEndDate") != null
@@ -262,7 +276,9 @@ public class BaseLibController {
             Authentication auth,
             @RequestParam("files") MultipartFile[] files,
             @RequestParam(value = "companyName", required = false) String companyName,
-            @RequestParam(value = "orgId", required = false) Long orgId) {
+            @RequestParam(value = "orgId", required = false) Long orgId,
+            @RequestParam(value = "projectName", required = false) String projectName,
+            @RequestParam(value = "orderNo", required = false) String orderNo) {
 
         if (!dataPermissionHelper.isAdmin(auth) && orgId == null) {
             SysUser currentUser = dataPermissionHelper.currentUser(auth);
@@ -305,6 +321,12 @@ public class BaseLibController {
                     final Long orgIdFinal = orgId;
                     final String orgNameFinal = resolvedOrgName;
                     records.forEach(r -> { r.setOrgId(orgIdFinal); r.setOrgName(orgNameFinal); });
+                }
+                if (projectName != null && !projectName.isBlank()) {
+                    records.forEach(r -> r.setProjectName(projectName));
+                }
+                if (orderNo != null && !orderNo.isBlank()) {
+                    records.forEach(r -> r.setOrderNo(orderNo));
                 }
 
                 baseLibService.insertBatchWithVerification(records, parsed.getAttendances());

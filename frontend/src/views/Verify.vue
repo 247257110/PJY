@@ -32,14 +32,23 @@
       <div class="step-card-body">
         <el-form label-width="90px" style="margin-bottom:16px">
           <el-form-item label="机构/公司">
-            <el-select v-if="isAdmin" v-model="selectedOrgId" placeholder="请选择项目所属公司" style="width:300px" clearable>
+            <el-select v-if="isAdmin" v-model="selectedOrgId" placeholder="请选择项目所属公司" style="width:300px" clearable
+              @change="onOrgChange">
               <el-option v-for="org in orgList" :key="org.id" :label="org.orgName" :value="org.id" />
             </el-select>
             <el-input v-else :value="selectedOrgName" disabled style="width:300px" />
           </el-form-item>
+          <el-form-item label="项目选择">
+            <el-select v-model="selectedProjectId" placeholder="请先选择机构" :disabled="!selectedOrgId"
+              @change="onProjectChange" clearable filterable style="width:300px">
+              <el-option v-for="p in projectOptions" :key="p.id" :label="`【${p.orderNo}】${p.projectName}`" :value="p.id" />
+            </el-select>
+          </el-form-item>
         </el-form>
         <el-upload
+          ref="uploadRef"
           class="upload-zone"
+          multiple
           drag
           :auto-upload="false"
           :on-change="handleFileChange"
@@ -48,17 +57,25 @@
         >
           <el-icon class="upload-icon"><UploadFilled /></el-icon>
           <div class="upload-text">拖拽文件到此处，或 <em>点击上传</em></div>
-          <div class="upload-hint">支持 PDF、Excel、Word、图片格式</div>
+          <div class="upload-hint">支持 PDF、Excel、Word、图片格式，可同时选择多个文件</div>
         </el-upload>
 
-        <div v-if="selectedFile" class="file-info">
-          <el-icon style="color:var(--c-gold);flex-shrink:0"><Document /></el-icon>
-          <span class="file-name">{{ selectedFile.name }}</span>
-          <el-button type="primary" :loading="uploading"
-            :disabled="!selectedFile || (isAdmin && !selectedOrgId)"
-            @click="doUpload" size="small">
-            解析上传
-          </el-button>
+        <div v-if="selectedFiles.length > 0" class="file-list">
+          <div v-for="(f, idx) in selectedFiles" :key="idx" class="file-row">
+            <el-icon style="color:var(--c-gold);flex-shrink:0"><Document /></el-icon>
+            <span class="file-name">{{ f.name }}</span>
+            <span class="file-size">{{ formatSize(f.size) }}</span>
+            <el-button :disabled="uploading" type="danger" link size="small" @click="removeFile(idx)">
+              <el-icon><Close /></el-icon>
+            </el-button>
+          </div>
+          <div class="file-actions">
+            <el-button type="primary" :loading="uploading"
+              :disabled="(isAdmin && !selectedOrgId)"
+              @click="doUpload" size="small">
+              解析上传
+            </el-button>
+          </div>
         </div>
       </div>
     </div>
@@ -90,6 +107,12 @@
         <span class="step-card-title">第二步：解析结果预览（共 {{ previewData.length }} 条）</span>
         <el-button type="primary" :loading="checking" @click="doCheck" size="small">开始校验</el-button>
       </div>
+      <!-- 考勤有效天数汇总 -->
+      <div v-if="attendanceSummary.length > 0" class="attendance-summary">
+        <span v-for="s in attendanceSummary" :key="s.name" class="att-summary-item">
+          姓名：{{ s.name }}，考勤有效天数：{{ s.attendanceDays }}
+        </span>
+      </div>
       <!-- 工作内容时间统计表 -->
       <div class="step-card-body no-pad">
         <el-table :data="previewData" border size="small" max-height="320">
@@ -106,13 +129,24 @@
       <!-- 考勤登记表 -->
       <div v-if="attendances.length > 0" class="attendance-section">
         <div class="attendance-header">合作公司人员考勤登记表（共 {{ attendances.length }} 条）</div>
-        <el-table :data="attendances" border size="small" max-height="320">
+        <el-table :data="pagedAttendances" border size="small" max-height="320">
           <el-table-column prop="name" label="姓名" width="80" />
           <el-table-column prop="projectName" label="项目名称" min-width="130" show-overflow-tooltip />
           <el-table-column prop="checkDate" label="日期" width="110" />
           <el-table-column prop="morning" label="上午" width="70" align="center" />
           <el-table-column prop="afternoon" label="下午" width="70" align="center" />
         </el-table>
+        <div class="attendance-pagination" v-if="attendances.length > attendancePageSize">
+          <el-pagination
+            v-model:current-page="attendancePage"
+            v-model:page-size="attendancePageSize"
+            :total="attendances.length"
+            :page-sizes="[20, 50, 100]"
+            layout="total, sizes, prev, pager, next"
+            background
+            small
+          />
+        </div>
       </div>
     </div>
 
@@ -191,9 +225,10 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { auth, verify, sysOrg } from '../api/index.js'
+import { auth, verify, sysOrg, sysProject } from '../api/index.js'
 
-const selectedFile = ref(null)
+const uploadRef = ref(null)
+const selectedFiles = ref([])
 const uploading = ref(false)
 const checking = ref(false)
 const confirming = ref(false)
@@ -205,6 +240,13 @@ const checkDone = ref(false)
 const checkPass = ref(false)
 const conflicts = ref([])
 const attendanceMismatches = ref([])
+const attendanceSummary = ref([])
+const attendancePage = ref(1)
+const attendancePageSize = ref(50)
+const pagedAttendances = computed(() => {
+  const start = (attendancePage.value - 1) * attendancePageSize.value
+  return attendances.value.slice(start, start + attendancePageSize.value)
+})
 const previewCard = ref(null)
 const batchList = ref([])
 const batchListLoading = ref(false)
@@ -233,8 +275,36 @@ async function loadOrgList() {
   } catch { /* 加载失败不阻断主流程 */ }
 }
 
+// 项目选择
+const projectOptions = ref([])
+const selectedProjectId = ref(null)
+const selectedProjectName = ref('')
+const selectedOrderNo = ref('')
+
+async function loadProjects(orgId) {
+  if (!orgId) { projectOptions.value = []; return }
+  try {
+    const res = await sysProject.listByOrg(orgId)
+    if (res.data.code === 200) projectOptions.value = res.data.data || []
+  } catch { projectOptions.value = [] }
+}
+
+function onOrgChange(orgId) {
+  selectedProjectId.value = null
+  selectedProjectName.value = ''
+  selectedOrderNo.value = ''
+  projectOptions.value = []
+  if (orgId) loadProjects(orgId)
+}
+
+function onProjectChange(val) {
+  const found = projectOptions.value.find(p => p.id === val)
+  selectedProjectName.value = found ? found.projectName : ''
+  selectedOrderNo.value = found ? (found.orderNo || '') : ''
+}
+
 function handleFileChange(file) {
-  selectedFile.value = file.raw
+  selectedFiles.value.push({ name: file.name, size: file.size, raw: file.raw })
   batchId.value = ''
   previewData.value = []
   attendances.value = []
@@ -242,10 +312,22 @@ function handleFileChange(file) {
   checkPass.value = false
   conflicts.value = []
   attendanceMismatches.value = []
+  attendanceSummary.value = []
+}
+
+function removeFile(idx) {
+  selectedFiles.value.splice(idx, 1)
+}
+
+function formatSize(bytes) {
+  if (!bytes) return ''
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
 async function doUpload() {
-  if (!selectedFile.value) return
+  if (!selectedFiles.value.length) return
   if (isAdmin && !selectedOrgId.value) {
     ElMessage.warning('请先选择项目所属公司')
     return
@@ -253,15 +335,21 @@ async function doUpload() {
   uploading.value = true
   try {
     const fd = new FormData()
-    fd.append('file', selectedFile.value)
+    for (const f of selectedFiles.value) {
+      fd.append('files', f.raw)
+    }
     const orgIdVal = isAdmin ? selectedOrgId.value : currentUser.orgId
     if (orgIdVal) fd.append('orgId', orgIdVal)
     if (resolvedOrgName.value) fd.append('companyName', resolvedOrgName.value)
+    if (selectedProjectName.value) fd.append('projectName', selectedProjectName.value)
+    if (selectedOrderNo.value) fd.append('orderNo', selectedOrderNo.value)
     const res = await verify.upload(fd)
     if (res.data.code === 200) {
       batchId.value = res.data.batchId
       previewData.value = res.data.records
       attendances.value = res.data.attendances || []
+      attendanceSummary.value = res.data.attendanceSummary || []
+      attendancePage.value = 1
       ElMessage.success(`解析成功，共 ${res.data.total} 条记录`)
       await nextTick()
       previewCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -287,6 +375,7 @@ async function doCheck() {
     checkPass.value = res.data.pass
     conflicts.value = res.data.conflicts || []
     attendanceMismatches.value = res.data.attendanceMismatches || []
+    attendanceSummary.value = res.data.attendanceSummary || []
     if (checkPass.value) {
       ElMessage.success('校验通过')
     } else {
@@ -325,7 +414,8 @@ async function doCancel() {
 }
 
 function resetAll() {
-  selectedFile.value = null
+  selectedFiles.value = []
+  uploadRef.value?.clearFiles()
   batchId.value = ''
   previewData.value = []
   attendances.value = []
@@ -333,6 +423,7 @@ function resetAll() {
   checkPass.value = false
   conflicts.value = []
   attendanceMismatches.value = []
+  attendanceSummary.value = []
 }
 
 async function loadBatches() {
@@ -351,6 +442,8 @@ async function enterPreview(batch) {
       batchId.value = batch.batchId
       previewData.value = res.data.data
       attendances.value = res.data.attendances || []
+      attendanceSummary.value = res.data.attendanceSummary || []
+      attendancePage.value = 1
       checkDone.value = false
       checkPass.value = false
       conflicts.value = []
@@ -393,6 +486,9 @@ onMounted(async () => {
   } catch { /* 失败不影响主流程 */ }
   loadOrgList()
   loadBatches()
+  if (!isAdmin && currentUser.orgId) {
+    loadProjects(currentUser.orgId)
+  }
 })
 </script>
 
@@ -483,19 +579,31 @@ onMounted(async () => {
 .upload-text em { color: var(--c-gold); font-style: normal; font-weight: 500; }
 .upload-hint { font-size: 12px; color: var(--c-text-3); margin-top: 6px; }
 
-.file-info {
+.file-list {
+  margin-top: 14px;
+  border: 1px solid rgba(22,119,255,0.25);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.file-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 14px;
-  padding: 10px 14px;
+  padding: 8px 14px;
   background: #eff6ff;
-  border: 1px solid rgba(22,119,255,0.25);
-  border-radius: 6px;
+  border-bottom: 1px solid rgba(22,119,255,0.1);
   font-size: 14px;
   color: var(--c-text-1);
 }
+.file-row:last-child { border-bottom: none; }
 .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-size { font-size: 12px; color: var(--c-text-3); flex-shrink: 0; }
+.file-actions {
+  padding: 10px 14px;
+  background: var(--c-white);
+  display: flex;
+  justify-content: flex-end;
+}
 
 /* Results */
 .result-row {
@@ -538,6 +646,24 @@ onMounted(async () => {
   border-bottom: 1px solid var(--c-border);
 }
 
+.attendance-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 20px;
+  background: #f0fdf4;
+  border-bottom: 1px solid var(--c-border);
+}
+.att-summary-item {
+  font-size: 13px;
+  color: var(--c-text-1);
+  font-weight: 500;
+  padding: 2px 12px;
+  background: #dcfce7;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
 .attendance-section { border-top: 1px solid var(--c-border); }
 .attendance-header {
   padding: 10px 16px;
@@ -545,5 +671,11 @@ onMounted(async () => {
   font-weight: 500;
   color: var(--c-text-2);
   background: var(--c-surface);
+}
+.attendance-pagination {
+  padding: 10px 16px;
+  display: flex;
+  justify-content: flex-end;
+  border-top: 1px solid var(--c-border);
 }
 </style>
